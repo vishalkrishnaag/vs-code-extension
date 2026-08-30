@@ -137,8 +137,24 @@ function quotePowerShell(value: string): string {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-function felidaeTerminalCommand(executablePath: string, args: string[]): string {
-  return `& ${quotePowerShell(executablePath)} ${args.map(quotePowerShell).join(" ")}`.trim();
+function quotePosixShell(value: string): string {
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
+}
+
+function nativeTerminalInvocation(executablePath: string, args: string[]): string {
+  const quote = process.platform === "win32" ? quotePowerShell : quotePosixShell;
+  const prefix = process.platform === "win32" ? "& " : "";
+  return `${prefix}${quote(executablePath)} ${args.map(quote).join(" ")}`.trim();
+}
+
+function felidaeTerminalCommand(commands: Array<{ executablePath: string; args: string[] }>): string {
+  const invocations = commands.map(({ executablePath, args }) => nativeTerminalInvocation(executablePath, args));
+  if (process.platform === "win32") {
+    return invocations.map((command, index) => index === 0
+      ? command
+      : `if ($LASTEXITCODE -eq 0) { ${command} }`).join("; ");
+  }
+  return invocations.join(" && ");
 }
 
 function documentRange(document: vscode.TextDocument, line: number, start: number, end: number): vscode.Range {
@@ -2791,13 +2807,47 @@ function withPlatformExecutableSuffix(resolved: string): string {
 
 function resolveInterpreterPath(documentUri: vscode.Uri): string {
   const config = vscode.workspace.getConfiguration("felidae");
-  const configuredPath = config.get<string>("interpreterPath", defaultExecutable("felidae"));
-  return withPlatformExecutableSuffix(resolveConfiguredPath(documentUri, configuredPath));
+  return resolveReleaseExecutable(documentUri, config.get<string>("interpreterPath", ""), "felidae_vm");
 }
 
-/** `build/<name>` plus the platform's executable suffix. */
-function defaultExecutable(name: string): string {
-  return `build/${name}${process.platform === "win32" ? ".exe" : ""}`;
+function resolveCompilerPath(documentUri: vscode.Uri): string {
+  const config = vscode.workspace.getConfiguration("felidae");
+  return resolveReleaseExecutable(documentUri, config.get<string>("compilerPath", ""), "felidae_compiler");
+}
+
+function releaseExecutableCandidates(name: string): string[] {
+  const executable = `${name}${process.platform === "win32" ? ".exe" : ""}`;
+  if (process.platform === "win32") {
+    return [
+      `build/windows-x64/release/dist/bin/${executable}`,
+      `build/release/dist/bin/${executable}`,
+      `dist/bin/${executable}`,
+      `release/bin/${executable}`
+    ];
+  }
+  if (process.platform === "darwin") {
+    const architecture = process.arch === "arm64" ? "arm64" : "x86_64";
+    return [
+      `build/macos-${architecture}/release/dist/bin/${executable}`,
+      `build/release/dist/bin/${executable}`,
+      `dist/bin/${executable}`,
+      `release/bin/${executable}`
+    ];
+  }
+  return [
+    `build/release/dist/bin/${executable}`,
+    `dist/bin/${executable}`,
+    `release/bin/${executable}`
+  ];
+}
+
+function resolveReleaseExecutable(documentUri: vscode.Uri, configuredPath: string | undefined, name: string): string {
+  if (configuredPath?.trim()) {
+    return withPlatformExecutableSuffix(resolveConfiguredPath(documentUri, configuredPath));
+  }
+  const candidates = releaseExecutableCandidates(name)
+    .map((candidate) => resolveConfiguredPath(documentUri, candidate));
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
 }
 
 function resolveDebugInterpreterPath(documentUri: vscode.Uri): string {
@@ -2805,10 +2855,11 @@ function resolveDebugInterpreterPath(documentUri: vscode.Uri): string {
   if (debuggerFromEnv && fs.existsSync(debuggerFromEnv)) return debuggerFromEnv;
 
   const config = vscode.workspace.getConfiguration("felidae");
-  return withPlatformExecutableSuffix(resolveConfiguredPath(
+  return resolveReleaseExecutable(
     documentUri,
-    config.get<string>("debugInterpreterPath", defaultExecutable("felidae_debug"))
-  ));
+    config.get<string>("debugInterpreterPath", ""),
+    "felidae_debugger"
+  );
 }
 
 function resolveCelidaePath(documentUri: vscode.Uri): string {
@@ -2818,7 +2869,7 @@ function resolveCelidaePath(documentUri: vscode.Uri): string {
   const config = vscode.workspace.getConfiguration("felidae");
   return withPlatformExecutableSuffix(resolveConfiguredPath(
     documentUri,
-    config.get<string>("celidaePath", defaultExecutable("celidae"))
+    config.get<string>("celidaePath", `build/celidae${process.platform === "win32" ? ".exe" : ""}`)
   ));
 }
 
@@ -2838,7 +2889,7 @@ function resolveConfiguredPath(documentUri: vscode.Uri, configuredPath: string):
 async function ensureInterpreterInstalled(
   interpreterPath: string,
   label: string,
-  settingsQuery: "felidae.interpreterPath" | "felidae.debugInterpreterPath" | "felidae.celidaePath" = "felidae.interpreterPath"
+  settingsQuery: "felidae.interpreterPath" | "felidae.compilerPath" | "felidae.debugInterpreterPath" | "felidae.celidaePath" = "felidae.interpreterPath"
 ): Promise<boolean> {
   if (fs.existsSync(interpreterPath)) return true;
   const downloadLabel = settingsQuery === "felidae.celidaePath" ? "Download Celidae" : "Download Felidae";
@@ -3156,11 +3207,18 @@ async function runQuery(uri?: vscode.Uri): Promise<void> {
     return;
   }
 
+  const compilerPath = resolveCompilerPath(document.uri);
   const interpreterPath = resolveInterpreterPath(document.uri);
   const programPath = document.uri.fsPath;
+  const compilerInstalled = await ensureInterpreterInstalled(compilerPath, "Felidae compiler", "felidae.compilerPath");
+  if (!compilerInstalled) return;
   const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
   if (!installed) return;
-  const command = felidaeTerminalCommand(interpreterPath, [programPath, query]);
+  const binaryPath = path.join(path.dirname(compilerPath), `${path.basename(programPath, path.extname(programPath))}.bin`);
+  const command = felidaeTerminalCommand([
+    { executablePath: compilerPath, args: [programPath] },
+    { executablePath: interpreterPath, args: [binaryPath, query] }
+  ]);
 
   const terminal = vscode.window.createTerminal({ name: "Felidae", cwd: path.dirname(programPath) });
   terminal.show();
@@ -3196,15 +3254,18 @@ async function runMain(uri?: vscode.Uri): Promise<void> {
   const canRun = await confirmRuntimeCheck(document, "Run");
   if (!canRun) return;
 
+  const compilerPath = resolveCompilerPath(document.uri);
   const interpreterPath = resolveInterpreterPath(document.uri);
   const programPath = document.uri.fsPath;
-  if (!fs.existsSync(interpreterPath)) {
-    vscode.window.showErrorMessage(`Felidae interpreter not found: ${interpreterPath}`);
-    return;
-  }
+  const compilerInstalled = await ensureInterpreterInstalled(compilerPath, "Felidae compiler", "felidae.compilerPath");
+  if (!compilerInstalled) return;
   const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
   if (!installed) return;
-  const command = felidaeTerminalCommand(interpreterPath, [programPath]);
+  const binaryPath = path.join(path.dirname(compilerPath), `${path.basename(programPath, path.extname(programPath))}.bin`);
+  const command = felidaeTerminalCommand([
+    { executablePath: compilerPath, args: [programPath] },
+    { executablePath: interpreterPath, args: [binaryPath] }
+  ]);
 
   const terminal = vscode.window.createTerminal({ name: "Felidae", cwd: path.dirname(programPath) });
   terminal.show();
@@ -3231,6 +3292,9 @@ async function debugMain(uri?: vscode.Uri): Promise<void> {
   if (!canDebug) return;
 
   const interpreterPath = resolveDebugInterpreterPath(document.uri);
+  const compilerPath = resolveCompilerPath(document.uri);
+  const compilerInstalled = await ensureInterpreterInstalled(compilerPath, "Felidae compiler", "felidae.compilerPath");
+  if (!compilerInstalled) return;
   const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae AST debugger", "felidae.debugInterpreterPath");
   if (!installed) return;
 
@@ -3241,6 +3305,7 @@ async function debugMain(uri?: vscode.Uri): Promise<void> {
     name: "Debug Felidae Main",
     program: document.uri.fsPath,
     interpreterPath,
+    compilerPath,
     stopOnEntry: true
   });
 }
@@ -3415,15 +3480,29 @@ class FelidaeDebugAdapter implements vscode.DebugAdapter {
   private launch(request: DapRequest): void {
     const args = (request.arguments ?? {}) as Record<string, unknown>;
     const interpreterPath = typeof args.interpreterPath === "string" ? args.interpreterPath : undefined;
+    const compilerPath = typeof args.compilerPath === "string" ? args.compilerPath : undefined;
     const program = typeof args.program === "string" ? args.program : undefined;
     const query = typeof args.query === "string" ? args.query : undefined;
     const stopOnEntry = args.stopOnEntry !== false;
 
-    if (!interpreterPath || !program) {
-      this.sendResponse(request, undefined, false, "Debug configuration requires interpreterPath and program.");
+    if (!interpreterPath || !compilerPath || !program) {
+      this.sendResponse(request, undefined, false, "Debug configuration requires compilerPath, interpreterPath, and program.");
       this.sendEvent("terminated");
       return;
     }
+
+    const compilation = childProcess.spawnSync(compilerPath, [program], {
+      cwd: path.dirname(program),
+      encoding: "utf8",
+      windowsHide: true
+    });
+    if (compilation.error || compilation.status !== 0) {
+      const detail = compilation.error?.message || compilation.stderr || `compiler exited with code ${compilation.status}`;
+      this.sendResponse(request, undefined, false, `Felidae compilation failed: ${detail}`);
+      this.sendEvent("terminated");
+      return;
+    }
+    if (compilation.stdout) this.sendOutput(compilation.stdout, "stdout");
 
     const launchArgs = [program];
     if (stopOnEntry) launchArgs.push("--stop-on-entry");
@@ -3436,7 +3515,7 @@ class FelidaeDebugAdapter implements vscode.DebugAdapter {
     this.currentLine = this.executableLines[0] ?? 1;
     this.callStack = [];
     this.stdoutBuffer = "";
-    this.sendOutput(`Celidae launch\n${interpreterPath} ${launchArgs.join(" ")}\n`, "console");
+    this.sendOutput(`Felidae debugger launch\n${interpreterPath} ${launchArgs.join(" ")}\n`, "console");
     this.process = childProcess.spawn(interpreterPath, launchArgs, {
       cwd: path.dirname(program),
       windowsHide: true
@@ -3817,7 +3896,9 @@ class FelidaeDebugConfigurationProvider implements vscode.DebugConfigurationProv
     config.name ??= "Debug Felidae Query";
     config.request ??= "launch";
     config.program ??= activeDocument?.uri.fsPath ?? "${file}";
-    config.interpreterPath ??= workspacePath ? withPlatformExecutableSuffix(path.join(workspacePath, "build", "felidae_debug" + (process.platform === "win32" ? ".exe" : ""))) : resolveDebugInterpreterPath(activeDocument?.uri ?? vscode.Uri.file(""));
+    const anchor = activeDocument?.uri ?? vscode.Uri.file(workspacePath ?? "");
+    config.interpreterPath ??= resolveDebugInterpreterPath(anchor);
+    config.compilerPath ??= resolveCompilerPath(anchor);
     config.stopOnEntry ??= true;
     return config;
   }
@@ -3985,4 +4066,3 @@ export function deactivate(): Thenable<void> {
   // leaving an orphaned felidae_debug behind on reload.
   return languageClient.stop();
 }
-

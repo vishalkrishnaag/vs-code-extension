@@ -32,8 +32,14 @@ const {
 } = require("vscode-languageserver-protocol/node");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
+const debuggerName = process.platform === "win32" ? "felidae_debugger.exe" : "felidae_debugger";
+const stagedDebugger = process.platform === "win32"
+  ? path.join(repoRoot, "build", "windows-x64", "release", "dist", "bin", debuggerName)
+  : process.platform === "darwin"
+    ? path.join(repoRoot, "build", `macos-${process.arch === "arm64" ? "arm64" : "x86_64"}`, "release", "dist", "bin", debuggerName)
+    : path.join(repoRoot, "build", "release", "dist", "bin", debuggerName);
 const serverPath =
-  process.argv[2] || path.join(repoRoot, "build", process.platform === "win32" ? "felidae_debug.exe" : "felidae_debug");
+  process.argv[2] || stagedDebugger;
 const samplePath =
   process.argv[3] || path.join(repoRoot, "examples", "advanced_mortality_fact_reasoning.fx");
 

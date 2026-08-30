@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 // Regenerates the library-name list embedded in syntaxes/felidae.tmLanguage.json
-// from `felidae_debug --list-libraries`, so the grammar never hand-copies a stale
+// from `felidae_debugger --list-libraries`, so the grammar never hand-copies a stale
 // module list. TextMate grammars are static JSON loaded once by VS Code, so
 // this runs at build/package time rather than on every keystroke.
 //
-// Usage: node scripts/generate-libraries.js [path/to/felidae_debug]
-// Falls back to build/felidae_debug(.exe) relative to
-// the repo root when no path is given.
+// Usage: node scripts/generate-libraries.js [path/to/felidae_debugger]
+// Falls back to the native release staging paths when no path is given.
 
 "use strict";
 
@@ -15,10 +14,17 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 function findDebugger(repoRoot) {
+  const executable = process.platform === "win32" ? "felidae_debugger.exe" : "felidae_debugger";
+  const macArchitecture = process.arch === "arm64" ? "arm64" : "x86_64";
   const candidates = [
     process.argv[2],
-    path.join(repoRoot, "build", "felidae_debug"),
-    path.join(repoRoot, "build", "felidae_debug.exe"),
+    process.platform === "win32"
+      ? path.join(repoRoot, "build", "windows-x64", "release", "dist", "bin", executable)
+      : process.platform === "darwin"
+        ? path.join(repoRoot, "build", `macos-${macArchitecture}`, "release", "dist", "bin", executable)
+        : path.join(repoRoot, "build", "release", "dist", "bin", executable),
+    path.join(repoRoot, "dist", "bin", executable),
+    path.join(repoRoot, "release", "bin", executable)
   ].filter(Boolean);
 
   for (const candidate of candidates) {
@@ -33,8 +39,8 @@ function main() {
 
   if (!debuggerExecutable) {
     console.error(
-      "generate-libraries: no felidae_debug executable found. " +
-        "Build the project first (./build.sh) or pass an explicit path. " +
+      "generate-libraries: no staged felidae_debugger executable found. " +
+        "Create felidae_dist first or pass an explicit path. " +
         "Leaving syntaxes/felidae.tmLanguage.json untouched."
     );
     process.exit(0); // Non-fatal: keep the last generated/committed list.
