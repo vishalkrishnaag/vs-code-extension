@@ -1380,7 +1380,7 @@ function normalizeGraphName(name: string): string {
 }
 
 const FELIDAE_LIBRARY_NAMES =
-  "array|comparison|console|csv|db|exception|fact|fact_analysis|file|flibrary|fn|group|gtk|http|json|list|logic|math|ml|package|pair|plot|prelude|probability|process|qt|set|smoke|str|system|thread|wordnet";
+  "array|comparison|console|csv|db|exception|fact|fact_analysis|file|flibrary|fn|group|gtk|http|json|list|logic|math|ml|package|pair|plot|prelude|process|qt|set|smoke|str|system|thread|wordnet";
 
 function isLibraryName(name: string): boolean {
   return new RegExp(`^(${FELIDAE_LIBRARY_NAMES})(:|$)`).test(name);

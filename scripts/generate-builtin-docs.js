@@ -22,7 +22,7 @@ const path = require("path");
 
 // Finds `<name>(` in `example` and returns the index of that `(`, or -1.
 // Anchored on the documented call name so an example like
-// `rows := Fact.all(type: "Customer")` cannot have its assignment target
+// `rows := ml.dot(left: xs, right: ys)` cannot have its assignment target
 // mistaken for the call, and so a non-call entry (e.g. the `system.result`
 // value, whose example merely mentions it) yields no parameters at all.
 function findCallParen(example, callName) {

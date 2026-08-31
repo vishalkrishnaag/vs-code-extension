@@ -101,10 +101,10 @@ const d4 = doc('Greeting(name: string, times: number) =>\n    return\n\nmain() =
 const h4 = sig.provideSignatureHelp(d4, new vscode.Position(4, 13));
 check("user signature", h4 && h4.signatures[0].label, "Greeting(name: string, times: number)");
 
-console.log("\nregression: Fact.all must NOT suggest 'rows' (the := target):");
-const d5 = doc('main() =>\n    Fact.all(');
-const items5 = T.completionsForCallFields(d5, "Fact:all", new Set());
-check("Fact.all params", items5.map(i => i.label), ["type"]);
+console.log("\nregression: assignment target is not treated as a parameter:");
+const d5 = doc('main() =>\n    score := ml.dot(');
+const items5 = T.completionsForCallFields(d5, "ml:dot", new Set());
+check("ml.dot params", items5.map(i => i.label), ["left", "right"]);
 
 console.log("\nhover on a user-defined method:");
 const hov = new T.FelidaeHoverProvider();
