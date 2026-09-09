@@ -908,7 +908,7 @@ function getCallNameAtPosition(document: vscode.TextDocument, position: vscode.P
 function definitionPattern(name: string): RegExp {
   const parts = name.split(/[:.]/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const qualifiedName = parts.join("\\s*[:.]\\s*");
-  return new RegExp(`^\\s*${qualifiedName}(?:\\s+extend\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*\\(`);
+  return new RegExp(`^(?:${qualifiedName}(?:\\s+extend\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*\\(|class\\s+${qualifiedName}\\b)`);
 }
 
 class FelidaeHoverProvider implements vscode.HoverProvider {
@@ -1014,9 +1014,29 @@ class FelidaeFoldingRangeProvider implements vscode.FoldingRangeProvider {
       /^[A-Za-z_][A-Za-z0-9_:.]*(?:[ \t]+extend[ \t]+[A-Za-z_][A-Za-z0-9_]*)?[ \t]*\(/.test(line) ||
       /^import\b/.test(line) ||
       /^[A-Za-z_][A-Za-z0-9_]*[ \t]*:=/.test(line);
+    const opensEndBlock = (line: string) =>
+      /^\s*class\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+extend\b.*)?\s*$/.test(line) ||
+      /^\s*[A-Za-z_][A-Za-z0-9_:.]*\s*\([^)]*\)\s*=>\s*(?:#.*)?$/.test(line);
+    const closesEndBlock = (line: string) => /^\s*end\.?\s*(?:#.*)?$/.test(line);
+
+    // Explicit `end` is authoritative: fold precisely from its opening
+    // declaration/class line to the matching closer, including nested blocks.
+    const endBlockStarts: number[] = [];
+    const explicitlyFolded = new Set<number>();
+    for (let i = 0; i < lines.length; i++) {
+      if (opensEndBlock(lines[i])) {
+        endBlockStarts.push(i);
+      } else if (closesEndBlock(lines[i])) {
+        const start = endBlockStarts.pop();
+        if (start !== undefined && i > start) {
+          ranges.push(new vscode.FoldingRange(start, i, vscode.FoldingRangeKind.Region));
+          explicitlyFolded.add(start);
+        }
+      }
+    }
 
     for (let i = 0; i < lines.length; i++) {
-      if (!startsTopLevel(lines[i])) continue;
+      if (!startsTopLevel(lines[i]) || explicitlyFolded.has(i)) continue;
       let end = i;
       for (let j = i + 1; j < lines.length; j++) {
         if (startsTopLevel(lines[j])) break;
@@ -1098,7 +1118,7 @@ class FelidaeSemanticTokensProvider implements vscode.DocumentSemanticTokensProv
       const isAssignmentTarget = next?.kind === "bind";
       const isLambdaItem = previous?.kind === "comma" && next?.kind === "arrow";
       const isMemberBase = (next?.kind === "dot" || next?.kind === "colon") && nextNext?.kind === "ident";
-      const isKeyword = ["if", "else", "extend", "where", "return", "lambda", "then", "nil"].includes(token.text);
+      const isKeyword = ["class", "end", "if", "else", "extend", "where", "return", "lambda", "then", "nil"].includes(token.text);
       const isCall = next?.kind === "lparen";
 
       if (isKeyword) continue;
@@ -1629,6 +1649,11 @@ function completionsForScope(
   }
 
   const text = document.getText();
+  const classDeclaration = /^class[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b/gm;
+  let classMatch: RegExpExecArray | null;
+  while ((classMatch = classDeclaration.exec(text)) !== null) {
+    add(classMatch[1], vscode.CompletionItemKind.Class, "class");
+  }
   const declaration = new RegExp(DECLARATION_PATTERN);
   let match: RegExpExecArray | null;
   while ((match = declaration.exec(text)) !== null) {
@@ -1735,7 +1760,9 @@ class FelidaeCompletionItemProvider implements vscode.CompletionItemProvider {
     const index = tokenIndexBefore(tokens, position);
     const items = new Map<string, vscode.CompletionItem>();
 
-    if (/[(,]\s*$/.test(linePrefix)) {
+    // Keep named-argument completion active while its key is being typed
+    // (`call(na|`), not only immediately after `(` or `,`.
+    if (/[(,]\s*[A-Za-z_]*$/.test(linePrefix)) {
       const call = enclosingCall(tokens, index);
       if (call) {
         const { suppliedKeys } = callArgumentState(tokens, call.openParen, index);

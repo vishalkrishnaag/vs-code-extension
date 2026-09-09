@@ -91,7 +91,7 @@
       "patterns": [
         {
           "name": "keyword.control.felidae",
-          "match": "\\b(?:extend|where|if|else|return|lambda|then)\\b"
+          "match": "\\b(?:class|extend|where|if|else|return|lambda|then|end)\\b"
         }
       ]
     },

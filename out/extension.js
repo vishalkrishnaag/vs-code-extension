@@ -802,7 +802,7 @@ function getCallNameAtPosition(document, position) {
 function definitionPattern(name) {
     const parts = name.split(/[:.]/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const qualifiedName = parts.join("\\s*[:.]\\s*");
-    return new RegExp(`^\\s*${qualifiedName}(?:\\s+extend\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*\\(`);
+    return new RegExp(`^(?:${qualifiedName}(?:\\s+extend\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*\\(|class\\s+${qualifiedName}\\b)`);
 }
 class FelidaeHoverProvider {
     provideHover(document, position) {
@@ -908,8 +908,27 @@ class FelidaeFoldingRangeProvider {
         const startsTopLevel = (line) => /^[A-Za-z_][A-Za-z0-9_:.]*(?:[ \t]+extend[ \t]+[A-Za-z_][A-Za-z0-9_]*)?[ \t]*\(/.test(line) ||
             /^import\b/.test(line) ||
             /^[A-Za-z_][A-Za-z0-9_]*[ \t]*:=/.test(line);
+        const opensEndBlock = (line) => /^\s*class\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+extend\b.*)?\s*$/.test(line) ||
+            /^\s*[A-Za-z_][A-Za-z0-9_:.]*\s*\([^)]*\)\s*=>\s*(?:#.*)?$/.test(line);
+        const closesEndBlock = (line) => /^\s*end\.?\s*(?:#.*)?$/.test(line);
+        // Explicit `end` is authoritative: fold precisely from its opening
+        // declaration/class line to the matching closer, including nested blocks.
+        const endBlockStarts = [];
+        const explicitlyFolded = new Set();
         for (let i = 0; i < lines.length; i++) {
-            if (!startsTopLevel(lines[i]))
+            if (opensEndBlock(lines[i])) {
+                endBlockStarts.push(i);
+            }
+            else if (closesEndBlock(lines[i])) {
+                const start = endBlockStarts.pop();
+                if (start !== undefined && i > start) {
+                    ranges.push(new vscode.FoldingRange(start, i, vscode.FoldingRangeKind.Region));
+                    explicitlyFolded.add(start);
+                }
+            }
+        }
+        for (let i = 0; i < lines.length; i++) {
+            if (!startsTopLevel(lines[i]) || explicitlyFolded.has(i))
                 continue;
             let end = i;
             for (let j = i + 1; j < lines.length; j++) {
@@ -990,7 +1009,7 @@ class FelidaeSemanticTokensProvider {
             const isAssignmentTarget = next?.kind === "bind";
             const isLambdaItem = previous?.kind === "comma" && next?.kind === "arrow";
             const isMemberBase = (next?.kind === "dot" || next?.kind === "colon") && nextNext?.kind === "ident";
-            const isKeyword = ["if", "else", "extend", "where", "return", "lambda", "then", "nil"].includes(token.text);
+            const isKeyword = ["class", "end", "if", "else", "extend", "where", "return", "lambda", "then", "nil"].includes(token.text);
             const isCall = next?.kind === "lparen";
             if (isKeyword)
                 continue;
@@ -1239,7 +1258,7 @@ function collectGraphCalls(text) {
 function normalizeGraphName(name) {
     return name.replace(/\./g, ":");
 }
-const FELIDAE_LIBRARY_NAMES = "array|comparison|console|csv|db|exception|fact|fact_analysis|file|flibrary|fn|group|gtk|http|json|list|logic|math|ml|package|pair|plot|prelude|probability|process|qt|set|smoke|str|system|thread|wordnet";
+const FELIDAE_LIBRARY_NAMES = "array|comparison|console|csv|db|exception|fact|fact_analysis|file|flibrary|fn|group|gtk|http|json|list|logic|math|ml|package|pair|plot|prelude|process|qt|set|smoke|str|system|thread|wordnet";
 function isLibraryName(name) {
     return new RegExp(`^(${FELIDAE_LIBRARY_NAMES})(:|$)`).test(name);
 }
@@ -1439,6 +1458,11 @@ function completionsForScope(document, tokens, index) {
         add(key, vscode.CompletionItemKind.Function, builtinDocs[key].heading);
     }
     const text = document.getText();
+    const classDeclaration = /^class[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b/gm;
+    let classMatch;
+    while ((classMatch = classDeclaration.exec(text)) !== null) {
+        add(classMatch[1], vscode.CompletionItemKind.Class, "class");
+    }
     const declaration = new RegExp(DECLARATION_PATTERN);
     let match;
     while ((match = declaration.exec(text)) !== null) {
@@ -1534,7 +1558,9 @@ class FelidaeCompletionItemProvider {
         const tokens = lexed.tokens;
         const index = tokenIndexBefore(tokens, position);
         const items = new Map();
-        if (/[(,]\s*$/.test(linePrefix)) {
+        // Keep named-argument completion active while its key is being typed
+        // (`call(na|`), not only immediately after `(` or `,`.
+        if (/[(,]\s*[A-Za-z_]*$/.test(linePrefix)) {
             const call = enclosingCall(tokens, index);
             if (call) {
                 const { suppliedKeys } = callArgumentState(tokens, call.openParen, index);

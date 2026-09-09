@@ -123,6 +123,26 @@ console.log("extend clauses");
 }
 
 // --------------------------------------------------------------------------
+console.log("explicit end blocks");
+{
+  const text = [
+    "class Person",
+    "    name: string",
+    "    greeting(prefix: string) =>",
+    "        return (message: prefix)",
+    "    end",
+    "end",
+    "main() =>",
+    "    return (ok: true)",
+    "end"
+  ].join("\n");
+  const found = regions(text, "Region");
+  check(sameRanges(found, [[1, 6], [3, 5], [7, 9]]),
+    "pairs nested class and method blocks with their explicit end lines",
+    JSON.stringify(found));
+}
+
+// --------------------------------------------------------------------------
 console.log("trailing comments belong to what follows");
 {
   const text = [

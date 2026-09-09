@@ -54,6 +54,25 @@
     ],
     "description": "Create a method-style typed rule"
   },
+  "Explicit End Method": {
+    "prefix": "methodend",
+    "body": [
+      "${1:methodName}(${2:input}: ${3:Type}) =>",
+      "    ${4:value} := ${2:input}",
+      "    return (${5:result}: ${4:value})",
+      "end"
+    ],
+    "description": "Create a method with an explicit end boundary"
+  },
+  "Class": {
+    "prefix": "class",
+    "body": [
+      "class ${1:TypeName}",
+      "    ${2:field}: ${3:string}",
+      "end"
+    ],
+    "description": "Create a class with an explicit end boundary"
+  },
   "Fallback Method": {
     "prefix": "fallback",
     "body": [
