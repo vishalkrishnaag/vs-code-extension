@@ -971,7 +971,7 @@ class FelidaeCodeLensProvider {
             const text = document.lineAt(line).text;
             // Same column-0 anchoring as hasMainMethod: an indented `main(...)`
             // call is a call, not the entry point.
-            if (!/^main[ \t]*\([^)]*\)[ \t]*=>/.test(text))
+            if (!/^main[ \t]*\([^)]*\)[ \t]*=>(?:[ \t]*(?:\(\))?)?(?:[ \t]*#.*)?$/.test(text))
                 continue;
             const range = new vscode.Range(line, text.indexOf("main"), line, text.indexOf("main") + 4);
             lenses.push(new vscode.CodeLens(range, {
@@ -982,11 +982,6 @@ class FelidaeCodeLensProvider {
             lenses.push(new vscode.CodeLens(range, {
                 title: "| $(debug-alt) Debug",
                 command: "felidae.debugMain",
-                arguments: [document.uri]
-            }));
-            lenses.push(new vscode.CodeLens(range, {
-                title: "| $(type-hierarchy-sub) visualize",
-                command: "felidae.visualize",
                 arguments: [document.uri]
             }));
         }
@@ -2563,13 +2558,30 @@ function withPlatformExecutableSuffix(resolved) {
         : `${resolved}.exe`;
     return fs.existsSync(alternate) ? alternate : resolved;
 }
+// "felidae" is the one interpreter binary this project builds - it reads
+// source.fx, parses it to an AST, and executes that AST directly; there is
+// no separate compiler or VM binary to run first (see README.md/code.md).
 function resolveInterpreterPath(documentUri) {
     const config = vscode.workspace.getConfiguration("felidae");
-    return resolveReleaseExecutable(documentUri, config.get("interpreterPath", ""), "felidae_vm");
+    return resolveReleaseExecutable(documentUri, workspaceExecutableSetting(documentUri, "interpreterPath") ??
+        config.get("interpreterPath", ""), "felidae");
 }
-function resolveCompilerPath(documentUri) {
-    const config = vscode.workspace.getConfiguration("felidae");
-    return resolveReleaseExecutable(documentUri, config.get("compilerPath", ""), "felidae_compiler");
+function workspaceExecutableSetting(documentUri, setting) {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(documentUri);
+    if (!workspaceFolder)
+        return undefined;
+    const configPath = path.join(workspaceFolder.uri.fsPath, ".vscode", "felidae.json");
+    if (!fs.existsSync(configPath))
+        return undefined;
+    try {
+        const parsed = JSON.parse(fs.readFileSync(configPath, "utf8"));
+        const value = parsed?.[setting];
+        return typeof value === "string" && value.trim() ? value : undefined;
+    }
+    catch (error) {
+        console.warn(`Felidae: unable to read ${configPath}: ${String(error)}`);
+        return undefined;
+    }
 }
 function releaseExecutableCandidates(name) {
     const executable = `${name}${process.platform === "win32" ? ".exe" : ""}`;
@@ -2609,7 +2621,8 @@ function resolveDebugInterpreterPath(documentUri) {
     if (debuggerFromEnv && fs.existsSync(debuggerFromEnv))
         return debuggerFromEnv;
     const config = vscode.workspace.getConfiguration("felidae");
-    return resolveReleaseExecutable(documentUri, config.get("debugInterpreterPath", ""), "felidae_debugger");
+    return resolveReleaseExecutable(documentUri, workspaceExecutableSetting(documentUri, "debugInterpreterPath") ??
+        config.get("debugInterpreterPath", ""), "felidae_debug");
 }
 function resolveCelidaePath(documentUri) {
     const celidaeFromEnv = process.env.CELIDAE_PATH;
@@ -2807,18 +2820,6 @@ class FelidaeCodeActionProvider {
     }
 }
 FelidaeCodeActionProvider.providedCodeActionKinds = [vscode.CodeActionKind.QuickFix];
-async function confirmRuntimeCheck(document, actionLabel) {
-    const interpreterPath = resolveDebugInterpreterPath(document.uri);
-    const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae AST debugger", "felidae.debugInterpreterPath");
-    if (!installed)
-        return false;
-    const diagnostics = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "Felidae: checking with felidae_debug --check-json..." }, () => runtimeCheckDiagnostics(document));
-    const hasErrors = diagnostics.some((item) => item.severity === vscode.DiagnosticSeverity.Error);
-    if (!hasErrors)
-        return true;
-    const choice = await vscode.window.showWarningMessage(`felidae_debug --check-json reported errors. ${actionLabel} anyway?`, `${actionLabel} Anyway`, "Cancel");
-    return choice === `${actionLabel} Anyway`;
-}
 async function getFelidaeDocument(uri) {
     if (uri) {
         const document = await vscode.workspace.openTextDocument(uri);
@@ -2841,9 +2842,6 @@ async function runQuery(uri) {
     if (document.isDirty) {
         await document.save();
     }
-    const canRun = await confirmRuntimeCheck(document, "Run");
-    if (!canRun)
-        return;
     const config = vscode.workspace.getConfiguration("felidae");
     const defaultQuery = config.get("defaultQuery", "? Engineer(name: name)");
     const editor = vscode.window.activeTextEditor;
@@ -2858,19 +2856,13 @@ async function runQuery(uri) {
     if (!query) {
         return;
     }
-    const compilerPath = resolveCompilerPath(document.uri);
     const interpreterPath = resolveInterpreterPath(document.uri);
     const programPath = document.uri.fsPath;
-    const compilerInstalled = await ensureInterpreterInstalled(compilerPath, "Felidae compiler", "felidae.compilerPath");
-    if (!compilerInstalled)
-        return;
     const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
     if (!installed)
         return;
-    const binaryPath = path.join(path.dirname(compilerPath), `${path.basename(programPath, path.extname(programPath))}.bin`);
     const command = felidaeTerminalCommand([
-        { executablePath: compilerPath, args: [programPath] },
-        { executablePath: interpreterPath, args: [binaryPath, query] }
+        { executablePath: interpreterPath, args: [programPath, query] }
     ]);
     const terminal = vscode.window.createTerminal({ name: "Felidae", cwd: path.dirname(programPath) });
     terminal.show();
@@ -2897,22 +2889,13 @@ async function runMain(uri) {
     if (document.isDirty) {
         await document.save();
     }
-    const canRun = await confirmRuntimeCheck(document, "Run");
-    if (!canRun)
-        return;
-    const compilerPath = resolveCompilerPath(document.uri);
     const interpreterPath = resolveInterpreterPath(document.uri);
     const programPath = document.uri.fsPath;
-    const compilerInstalled = await ensureInterpreterInstalled(compilerPath, "Felidae compiler", "felidae.compilerPath");
-    if (!compilerInstalled)
-        return;
     const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
     if (!installed)
         return;
-    const binaryPath = path.join(path.dirname(compilerPath), `${path.basename(programPath, path.extname(programPath))}.bin`);
     const command = felidaeTerminalCommand([
-        { executablePath: compilerPath, args: [programPath] },
-        { executablePath: interpreterPath, args: [binaryPath] }
+        { executablePath: interpreterPath, args: [programPath] }
     ]);
     const terminal = vscode.window.createTerminal({ name: "Felidae", cwd: path.dirname(programPath) });
     terminal.show();
@@ -2931,15 +2914,12 @@ async function debugMain(uri) {
     if (document.isDirty) {
         await document.save();
     }
-    const canDebug = await confirmRuntimeCheck(document, "Debug");
-    if (!canDebug)
-        return;
-    const interpreterPath = resolveDebugInterpreterPath(document.uri);
-    const compilerPath = resolveCompilerPath(document.uri);
-    const compilerInstalled = await ensureInterpreterInstalled(compilerPath, "Felidae compiler", "felidae.compilerPath");
-    if (!compilerInstalled)
-        return;
-    const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae AST debugger", "felidae.debugInterpreterPath");
+    // The real debug session (Interpreter::setGoalHook, driven via `felidae
+    // program.fx --debug`) runs in the interpreter itself. `felidae_debug` is
+    // an advisory analyzer used by the diagnostics provider; it must not gate
+    // execution because it has no way to execute a program.
+    const interpreterPath = resolveInterpreterPath(document.uri);
+    const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
     if (!installed)
         return;
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -2949,21 +2929,22 @@ async function debugMain(uri) {
         name: "Debug Felidae Main",
         program: document.uri.fsPath,
         interpreterPath,
-        compilerPath,
         stopOnEntry: true
     });
 }
+// Drives Interpreter::setGoalHook's real debug protocol (`felidae program.fx
+// --debug`, src/main.cpp's DebugSession) over the child process's
+// stdin/stdout - not a simulation. Every "stopped" event, stack line, and
+// local variable value below comes from that child actually pausing and
+// reporting its live Env, the same way `felidae --debug` behaves when driven
+// by hand (see the FELIDAE_DEBUG_* marker protocol documented in main.cpp).
 class FelidaeDebugAdapter {
     constructor() {
         this.emitter = new vscode.EventEmitter();
-        this.stopped = false;
         this.currentLine = 1;
-        this.executableLines = [1];
-        this.callStack = [];
-        this.methodDefinitions = new Map();
-        this.breakpointsByFile = new Map();
-        this.fileLinesCache = new Map();
         this.stdoutBuffer = "";
+        this.breakpoints = new Set();
+        this.locals = [];
         this.onDidSendMessage = this.emitter.event;
     }
     handleMessage(message) {
@@ -2973,53 +2954,38 @@ class FelidaeDebugAdapter {
         }
         if (request.command === "initialize") {
             this.sendResponse(request, {
-                supportsSetVariable: false,
                 supportsEvaluateForHovers: true,
                 supportsEvaluateForRepl: true,
-                supportsConditionalBreakpoints: false,
-                supportsHitConditionalBreakpoints: false,
-                supportsConfigurationDoneRequest: false,
+                supportsConfigurationDoneRequest: true,
                 supportsSetBreakpointsRequest: true,
-                supportsPauseRequest: true,
                 supportsTerminateRequest: true
             });
             this.sendEvent("initialized");
             return;
         }
+        if (request.command === "configurationDone") {
+            this.sendResponse(request);
+            return;
+        }
         if (request.command === "launch") {
-            this.launch(request);
+            void this.launch(request);
             return;
         }
         if (request.command === "threads") {
-            this.sendResponse(request, { threads: [{ id: 1, name: "Felidae AST debugger" }] });
+            this.sendResponse(request, { threads: [{ id: 1, name: "Felidae" }] });
             return;
         }
         if (request.command === "stackTrace") {
-            const activeFile = this.currentSource ?? this.currentProgram;
-            const source = activeFile ? {
-                name: path.basename(activeFile),
-                path: activeFile
+            const source = this.currentProgram ? {
+                name: path.basename(this.currentProgram),
+                path: this.currentProgram
             } : undefined;
-            const frames = [{
-                    id: 1,
-                    name: this.callStack[this.callStack.length - 1]?.name ?? (this.stopped ? "Felidae simulated step" : "Felidae program"),
-                    source,
-                    line: this.currentLine,
-                    column: 1
-                }];
-            for (let i = this.callStack.length - 1; i >= 0; i--) {
-                const frame = this.callStack[i];
-                frames.push({
-                    id: frames.length + 1,
-                    name: frame.name,
-                    source: { name: path.basename(frame.returnFile), path: frame.returnFile },
-                    line: frame.returnLine,
-                    column: 1
-                });
-            }
+            // One real frame: the interpreter's stdin/stdout protocol reports the
+            // current paused line, not a full call stack (Interpreter::solveIterative
+            // doesn't yet publish per-call-frame names alongside method depth).
             this.sendResponse(request, {
-                stackFrames: frames,
-                totalFrames: frames.length
+                stackFrames: [{ id: 1, name: "Felidae program", source, line: this.currentLine, column: 1 }],
+                totalFrames: 1
             });
             return;
         }
@@ -3036,57 +3002,33 @@ class FelidaeDebugAdapter {
         if (request.command === "variables") {
             const args = (request.arguments ?? {});
             const variables = args.variablesReference === FelidaeDebugAdapter.localVariablesReference
-                ? this.collectVisibleVariables()
+                ? this.locals.map((variable) => ({ ...variable, variablesReference: 0 }))
                 : [];
             this.sendResponse(request, { variables });
             return;
         }
         if (request.command === "evaluate") {
-            this.evaluate(request);
+            void this.evaluate(request);
             return;
         }
         if (request.command === "setBreakpoints") {
-            const args = (request.arguments ?? {});
-            const sourcePath = args.source?.path;
-            const requested = args.breakpoints ?? [];
-            const sourceExecutableLines = sourcePath ? this.loadExecutableLines(sourcePath) : this.executableLines;
-            if (sourcePath) {
-                const verified = requested
-                    .map((breakpoint) => breakpoint.line)
-                    .filter((line) => sourceExecutableLines.includes(line));
-                this.breakpointsByFile.set(this.normalizePath(sourcePath), new Set(verified));
-            }
-            const breakpoints = (args.breakpoints ?? []).map((breakpoint) => ({
-                verified: sourceExecutableLines.includes(breakpoint.line),
-                line: breakpoint.line,
-                message: sourceExecutableLines.includes(breakpoint.line)
-                    ? "Felidae simulated breakpoint."
-                    : "No executable Felidae statement found on this line."
-            }));
-            this.sendResponse(request, { breakpoints });
+            this.setBreakpoints(request);
             return;
         }
         if (request.command === "next" || request.command === "stepIn" || request.command === "stepOut") {
-            this.stepSimulated(request.command);
-            this.sendResponse(request);
-            this.sendEvent("stopped", { reason: "step", threadId: 1, allThreadsStopped: true });
+            void this.step(request, request.command);
             return;
         }
         if (request.command === "pause") {
-            this.stopped = true;
-            this.sendResponse(request);
-            this.sendEvent("stopped", { reason: "pause", threadId: 1, allThreadsStopped: true });
+            // The real protocol only pauses at a breakpoint or step target it
+            // reaches on its own; there is no async "stop wherever you currently
+            // are" command to send it, so reporting a fake stop here would show a
+            // line the interpreter was never actually paused at.
+            this.sendResponse(request, undefined, false, "Pause is not supported; set a breakpoint instead.");
             return;
         }
         if (request.command === "continue") {
-            this.sendResponse(request, { allThreadsContinued: true });
-            this.sendEvent("continued", { threadId: 1, allThreadsContinued: true });
-            if (this.continueToNextBreakpoint()) {
-                this.sendEvent("stopped", { reason: "breakpoint", threadId: 1, allThreadsStopped: true });
-                return;
-            }
-            this.stopped = false;
-            this.process?.stdin.write("continue\n");
+            void this.continueExecution(request);
             return;
         }
         if (request.command === "disconnect" || request.command === "terminate") {
@@ -3102,44 +3044,25 @@ class FelidaeDebugAdapter {
         this.process?.kill();
         this.emitter.dispose();
     }
-    launch(request) {
+    async launch(request) {
         const args = (request.arguments ?? {});
         const interpreterPath = typeof args.interpreterPath === "string" ? args.interpreterPath : undefined;
-        const compilerPath = typeof args.compilerPath === "string" ? args.compilerPath : undefined;
         const program = typeof args.program === "string" ? args.program : undefined;
         const query = typeof args.query === "string" ? args.query : undefined;
-        const stopOnEntry = args.stopOnEntry !== false;
-        if (!interpreterPath || !compilerPath || !program) {
-            this.sendResponse(request, undefined, false, "Debug configuration requires compilerPath, interpreterPath, and program.");
+        if (!interpreterPath || !program) {
+            this.sendResponse(request, undefined, false, "Debug configuration requires interpreterPath and program.");
             this.sendEvent("terminated");
             return;
         }
-        const compilation = childProcess.spawnSync(compilerPath, [program], {
-            cwd: path.dirname(program),
-            encoding: "utf8",
-            windowsHide: true
-        });
-        if (compilation.error || compilation.status !== 0) {
-            const detail = compilation.error?.message || compilation.stderr || `compiler exited with code ${compilation.status}`;
-            this.sendResponse(request, undefined, false, `Felidae compilation failed: ${detail}`);
-            this.sendEvent("terminated");
-            return;
-        }
-        if (compilation.stdout)
-            this.sendOutput(compilation.stdout, "stdout");
-        const launchArgs = [program];
-        if (stopOnEntry)
-            launchArgs.push("--stop-on-entry");
-        if (query)
-            launchArgs.push("--query", query);
+        // --debug installs the goal hook regardless of what runs afterward, so
+        // it composes with a query the same as with main(...): confirmed against
+        // the real interpreter, `felidae program.fx '? Query(...)' --debug`
+        // stops on entry and then reports the query's solutions once continued.
+        const launchArgs = query ? [program, query, "--debug"] : [program, "--debug"];
         this.currentProgram = program;
-        this.currentSource = program;
-        this.currentInterpreterPath = interpreterPath;
-        this.methodDefinitions = this.loadMethodDefinitions(program);
-        this.executableLines = this.loadExecutableLines(program);
-        this.currentLine = this.executableLines[0] ?? 1;
-        this.callStack = [];
+        this.currentLine = 1;
         this.stdoutBuffer = "";
+        this.breakpoints = new Set();
         this.sendOutput(`Felidae debugger launch\n${interpreterPath} ${launchArgs.join(" ")}\n`, "console");
         this.process = childProcess.spawn(interpreterPath, launchArgs, {
             cwd: path.dirname(program),
@@ -3149,41 +3072,105 @@ class FelidaeDebugAdapter {
         this.process.stderr.on("data", (data) => this.sendOutput(data.toString(), "stderr"));
         this.process.on("error", (error) => {
             this.sendOutput(`${error.message}\n`, "stderr");
+            this.resolvePendingStop();
             this.sendEvent("terminated");
         });
         this.process.on("close", (code) => {
             this.flushDebugStdout();
             this.sendOutput(`Felidae process exited with code ${code ?? "unknown"}.\n`, "console");
+            this.process = undefined;
+            this.resolvePendingStop();
             this.sendEvent("terminated");
         });
+        // The interpreter always starts paused on entry (DebugSession::attach);
+        // wait for that first real stop before replying, so the very first
+        // "stopped" event corresponds to a line the child actually reported.
+        await this.waitForStop();
         this.sendResponse(request);
+        if (this.process)
+            this.sendEvent("stopped", { reason: "entry", threadId: 1, allThreadsStopped: true });
     }
-    evaluate(request) {
+    waitForStop() {
+        return new Promise((resolve) => { this.pendingStop = resolve; });
+    }
+    resolvePendingStop() {
+        const resolve = this.pendingStop;
+        this.pendingStop = undefined;
+        resolve?.();
+    }
+    setBreakpoints(request) {
         const args = (request.arguments ?? {});
-        const expression = (args.expression ?? "").trim();
+        const requested = new Set((args.breakpoints ?? []).map((breakpoint) => breakpoint.line));
+        for (const line of requested) {
+            if (!this.breakpoints.has(line))
+                this.process?.stdin.write(`break ${line}\n`);
+        }
+        for (const line of this.breakpoints) {
+            if (!requested.has(line))
+                this.process?.stdin.write(`clear ${line}\n`);
+        }
+        this.breakpoints = requested;
+        // Reported verified without a round-trip confirmation from the child
+        // (the protocol has no "is this line executable" query yet) - optimistic,
+        // like most debug adapters default to when a line's executability isn't
+        // independently known ahead of time.
+        this.sendResponse(request, {
+            breakpoints: (args.breakpoints ?? []).map((breakpoint) => ({ verified: true, line: breakpoint.line }))
+        });
+    }
+    async step(request, command) {
+        if (!this.process) {
+            this.sendResponse(request, undefined, false, "No active Felidae debug session.");
+            return;
+        }
+        const stopped = this.waitForStop();
+        this.process.stdin.write(`${command}\n`);
+        this.sendResponse(request);
+        await stopped;
+        if (this.process)
+            this.sendEvent("stopped", { reason: "step", threadId: 1, allThreadsStopped: true });
+    }
+    async continueExecution(request) {
+        if (!this.process) {
+            this.sendResponse(request, undefined, false, "No active Felidae debug session.");
+            return;
+        }
+        const stopped = this.waitForStop();
+        this.process.stdin.write("continue\n");
+        this.sendResponse(request, { allThreadsContinued: true });
+        this.sendEvent("continued", { threadId: 1, allThreadsContinued: true });
+        await stopped;
+        // A run that finishes rather than hitting another breakpoint resolves
+        // this same promise from the "close" handler, with "terminated" already
+        // sent and no further stop to report.
+        if (this.process)
+            this.sendEvent("stopped", { reason: "breakpoint", threadId: 1, allThreadsStopped: true });
+    }
+    async evaluate(request) {
+        const args = (request.arguments ?? {});
+        // The real protocol's `print` only resolves one bound name, not an
+        // arbitrary expression; a hover/watch on a compound expression will not
+        // evaluate; take the first token as a best-effort name lookup.
+        const expression = (args.expression ?? "").trim().split(/\s+/)[0];
         if (!expression) {
             this.sendResponse(request, { result: "", variablesReference: 0 });
             return;
         }
-        if (!this.currentProgram || !this.currentInterpreterPath) {
-            this.sendResponse(request, undefined, false, "Start a Celidae debug session before running Debug Console queries.");
+        if (!this.process) {
+            this.sendResponse(request, undefined, false, "No active Felidae debug session.");
             return;
         }
-        const query = expression.startsWith("?") ? expression : `? ${expression}`;
-        const result = childProcess.spawnSync(this.currentInterpreterPath, [this.currentProgram, "--query", query], {
-            cwd: path.dirname(this.currentProgram),
-            encoding: "utf8",
-            windowsHide: true
+        const value = await new Promise((resolve) => {
+            this.pendingPrint = { name: expression, resolve };
+            this.process?.stdin.write(`print ${expression}\n`);
         });
-        const output = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
-        if (result.error) {
-            this.sendResponse(request, undefined, false, result.error.message);
-            return;
-        }
-        this.sendResponse(request, {
-            result: output || "(no result)",
-            variablesReference: 0
-        }, result.status === 0, result.status === 0 ? undefined : output);
+        this.sendResponse(request, { result: value ?? "<unbound>", variablesReference: 0 });
+    }
+    refreshLocals() {
+        return new Promise((resolve) => {
+            this.pendingLocals = { resolve };
+            this.process?.stdin.write("locals\n");
+        });
     }
     handleDebugStdout(text) {
         this.stdoutBuffer += text;
@@ -3202,274 +3189,45 @@ class FelidaeDebugAdapter {
     handleDebugLine(line) {
         if (!line)
             return;
-        if (line.startsWith("FELIDAE_DEBUG_STOPPED")) {
-            this.stopped = true;
-            this.currentLine = this.executableLines[0] ?? 1;
-            this.sendEvent("stopped", { reason: "entry", threadId: 1, allThreadsStopped: true });
+        const stopped = /^FELIDAE_DEBUG_STOPPED reason=(\S+) line=(\d+)/.exec(line);
+        if (stopped) {
+            this.currentLine = Number(stopped[2]);
+            // Refresh locals before resolving the pause: `variables` fires right
+            // after "stopped", so it must already have this stop's real bindings
+            // rather than the previous pause's.
+            void this.refreshLocals().then(() => this.resolvePendingStop());
             return;
         }
-        if (line.startsWith("FELIDAE_DEBUG_CONTINUED")) {
-            this.stopped = false;
-            this.sendEvent("continued", { threadId: 1, allThreadsContinued: true });
+        if (line === "FELIDAE_DEBUG_CONTINUED" ||
+            line === "FELIDAE_DEBUG_TERMINATED" ||
+            line.startsWith("FELIDAE_DEBUG_BREAKPOINT_") ||
+            line.startsWith("FELIDAE_DEBUG_ERROR")) {
             return;
         }
-        if (line.startsWith("FELIDAE_DEBUG_EXIT")) {
+        if (line === "FELIDAE_DEBUG_LOCALS_BEGIN") {
+            this.locals = [];
             return;
         }
-        if (line.startsWith("FELIDAE_DEBUG_READY")) {
-            this.sendOutput(`${line}\n`, "console");
+        if (line === "FELIDAE_DEBUG_LOCALS_END") {
+            this.pendingLocals?.resolve();
+            this.pendingLocals = undefined;
+            return;
+        }
+        if (this.pendingLocals) {
+            const bound = /^(\S+) = (.*)$/.exec(line);
+            if (bound)
+                this.locals.push({ name: bound[1], value: bound[2] });
+            return;
+        }
+        const value = /^FELIDAE_DEBUG_VALUE (\S+) = (.*)$/.exec(line);
+        if (value) {
+            if (this.pendingPrint && this.pendingPrint.name === value[1]) {
+                this.pendingPrint.resolve(value[2]);
+                this.pendingPrint = undefined;
+            }
             return;
         }
         this.sendOutput(`${line}\n`, "stdout");
-    }
-    // Every stepIntoCall/stepOutOfCall/launch and every "variables" DAP request
-    // (fired after each stop event) used to re-read and re-split the source
-    // file from scratch. Cache split lines per file, invalidated by mtime, so
-    // repeated steps within the same unchanged file are cheap.
-    getFileLines(filePath) {
-        const key = this.normalizePath(filePath);
-        try {
-            const mtimeMs = fs.statSync(filePath).mtimeMs;
-            const cached = this.fileLinesCache.get(key);
-            if (cached && cached.mtimeMs === mtimeMs)
-                return cached.lines;
-            const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
-            this.fileLinesCache.set(key, { mtimeMs, lines });
-            return lines;
-        }
-        catch {
-            return [];
-        }
-    }
-    loadExecutableLines(program) {
-        const lines = this.getFileLines(program);
-        if (!lines.length)
-            return [1];
-        const executable = [];
-        for (let i = 0; i < lines.length; i++) {
-            const trimmed = lines[i].trim();
-            if (!trimmed || trimmed.startsWith("#"))
-                continue;
-            if (/^[)\]}.,]+$/.test(trimmed))
-                continue;
-            executable.push(i + 1);
-        }
-        return executable.length ? executable : [1];
-    }
-    loadMethodDefinitions(program) {
-        const definitions = new Map();
-        const visited = new Set();
-        const visit = (filePath) => {
-            const normalized = this.normalizePath(filePath);
-            if (visited.has(normalized) || !fs.existsSync(filePath))
-                return;
-            visited.add(normalized);
-            const lines = this.getFileLines(filePath);
-            const text = lines.join("\n");
-            // Reuse the same declaration scanner the Document Symbol/Completion
-            // providers already use, instead of a second, slightly different
-            // per-line method-head regex.
-            const declaration = new RegExp(DECLARATION_PATTERN);
-            let match;
-            while ((match = declaration.exec(text)) !== null) {
-                if (match[4] !== "=>")
-                    continue;
-                const name = match[1].replace(/\./g, ":");
-                if (!definitions.has(name)) {
-                    const line = text.slice(0, match.index).split("\n").length;
-                    definitions.set(name, { file: filePath, line });
-                }
-            }
-            for (let i = 0; i < lines.length; i++) {
-                const withoutComment = lines[i].split("#", 1)[0];
-                const importMatch = /^\s*import\s+"([^"]+)"/.exec(withoutComment);
-                if (importMatch) {
-                    for (const imported of this.resolveImportFiles(filePath, importMatch[1]))
-                        visit(imported);
-                }
-            }
-        };
-        visit(program);
-        return definitions;
-    }
-    resolveImportFiles(fromFile, importPath) {
-        const root = this.findWorkspaceRoot(fromFile);
-        const candidates = [];
-        if (!path.isAbsolute(importPath) && !importPath.includes("/") && !importPath.includes("\\") && !path.extname(importPath)) {
-            candidates.push(path.join(root, "core", `${importPath}.fx`));
-        }
-        const direct = path.isAbsolute(importPath) ? importPath : path.resolve(path.dirname(fromFile), importPath);
-        candidates.push(direct);
-        if (!path.extname(direct))
-            candidates.push(`${direct}.fx`);
-        return candidates.filter((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
-    }
-    findWorkspaceRoot(fromFile) {
-        let current = path.dirname(fromFile);
-        while (true) {
-            if (fs.existsSync(path.join(current, "core")))
-                return current;
-            const parent = path.dirname(current);
-            if (parent === current)
-                return path.dirname(fromFile);
-            current = parent;
-        }
-    }
-    normalizePath(filePath) {
-        return path.resolve(filePath).toLowerCase();
-    }
-    continueToNextBreakpoint() {
-        const activeFile = this.currentSource ?? this.currentProgram;
-        if (!activeFile)
-            return false;
-        const breakpoints = this.breakpointsByFile.get(this.normalizePath(activeFile));
-        if (!breakpoints || breakpoints.size === 0)
-            return false;
-        // Recompute directly for activeFile (cheap: getFileLines is cached)
-        // rather than trusting this.executableLines to already match it, so this
-        // stays correct even if a future edit adds a path that moves
-        // currentSource without also refreshing executableLines.
-        const fileExecutableLines = this.loadExecutableLines(activeFile);
-        const next = Array.from(breakpoints)
-            .filter((line) => line > this.currentLine && fileExecutableLines.includes(line))
-            .sort((left, right) => left - right)[0];
-        if (!next)
-            return false;
-        this.currentLine = next;
-        this.stopped = true;
-        return true;
-    }
-    stepSimulated(command) {
-        this.stopped = true;
-        if (command === "stepIn" && this.stepIntoCall())
-            return;
-        if (command === "stepOut" && this.stepOutOfCall())
-            return;
-        this.stepToNextLine();
-    }
-    stepToNextLine() {
-        const foundIndex = this.executableLines.findIndex((line) => line >= this.currentLine);
-        // findIndex returns -1 once currentLine is past every known executable
-        // line; falling back to 0 would jump backward to the top of the file
-        // instead of staying at the last line.
-        const currentIndex = foundIndex === -1 ? this.executableLines.length - 1 : foundIndex;
-        const nextIndex = Math.min(this.executableLines.length - 1, currentIndex + 1);
-        this.currentLine = this.executableLines[nextIndex] ?? this.currentLine;
-    }
-    stepIntoCall() {
-        const activeFile = this.currentSource ?? this.currentProgram;
-        if (!activeFile)
-            return false;
-        const line = this.readLine(activeFile, this.currentLine);
-        const call = this.findMethodCallOnLine(line);
-        if (!call)
-            return false;
-        const definition = this.methodDefinitions.get(call);
-        if (!definition)
-            return false;
-        this.callStack.push({
-            name: call,
-            file: definition.file,
-            line: definition.line,
-            returnFile: activeFile,
-            returnLine: this.nextExecutableLineAfter(activeFile, this.currentLine)
-        });
-        this.currentSource = definition.file;
-        this.executableLines = this.loadExecutableLines(definition.file);
-        this.currentLine = definition.line;
-        return true;
-    }
-    stepOutOfCall() {
-        const frame = this.callStack.pop();
-        if (!frame) {
-            this.stepToNextLine();
-            return true;
-        }
-        this.currentSource = frame.returnFile;
-        this.executableLines = this.loadExecutableLines(frame.returnFile);
-        this.currentLine = frame.returnLine;
-        return true;
-    }
-    readLine(filePath, line) {
-        return this.getFileLines(filePath)[line - 1] ?? "";
-    }
-    nextExecutableLineAfter(filePath, line) {
-        const lines = this.loadExecutableLines(filePath);
-        return lines.find((candidate) => candidate > line) ?? line;
-    }
-    findMethodCallOnLine(line) {
-        const withoutComment = line.split("#", 1)[0];
-        const calls = withoutComment.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*(?:(?:[:.])[A-Za-z_][A-Za-z0-9_]*)*)\s*\(/g);
-        const ignored = new Set(["return", "where", "lambda", "else", "then"]);
-        for (const match of calls) {
-            const name = match[1].replace(/\./g, ":");
-            const base = name.split(":").pop() ?? name;
-            if (ignored.has(base) || ignored.has(name))
-                continue;
-            if (this.methodDefinitions.has(name))
-                return name;
-        }
-        return undefined;
-    }
-    collectVisibleVariables() {
-        const activeFile = this.currentSource ?? this.currentProgram;
-        if (!activeFile) {
-            return [];
-        }
-        const lines = this.getFileLines(activeFile);
-        if (!lines.length)
-            return [];
-        const endIndex = Math.min(lines.length, Math.max(1, this.currentLine));
-        let scopeStart = 0;
-        const variables = new Set();
-        for (let i = endIndex - 1; i >= 0; i--) {
-            // Anchored at column 0 like every Felidae declaration, and the name
-            // allows `.`/`:` so namespaced heads (`Dog.membership(...) =>`) are
-            // recognised - previously they were not, so stepping inside one fell
-            // back to scanning from line 0 and reported the wrong locals.
-            const head = /^[A-Za-z_][A-Za-z0-9_:.]*[ \t]*\((.*)\)[ \t]*=>/.exec(lines[i]);
-            if (head) {
-                scopeStart = i;
-                this.collectHeadVariables(head[1], variables);
-                break;
-            }
-        }
-        for (let i = scopeStart; i < endIndex; i++) {
-            this.collectLineVariables(lines[i], variables);
-        }
-        return Array.from(variables)
-            .sort((left, right) => left.localeCompare(right))
-            .map((name) => ({
-            name,
-            value: "<simulated>",
-            variablesReference: 0
-        }));
-    }
-    collectHeadVariables(parameters, variables) {
-        const parts = parameters.split(",");
-        for (const part of parts) {
-            const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(part);
-            if (match && match[1] !== "_") {
-                variables.add(match[1]);
-            }
-        }
-    }
-    collectLineVariables(line, variables) {
-        const withoutComment = line.split("#", 1)[0];
-        const assignment = /\b([A-Za-z_][A-Za-z0-9_]*)\s*:=/g;
-        let assignmentMatch;
-        while ((assignmentMatch = assignment.exec(withoutComment)) !== null) {
-            if (assignmentMatch[1] !== "_") {
-                variables.add(assignmentMatch[1]);
-            }
-        }
-        const lambda = /\blambda\s*\([^,]+,\s*([a-z_][A-Za-z0-9_]*)\s*=>/g;
-        let lambdaMatch;
-        while ((lambdaMatch = lambda.exec(withoutComment)) !== null) {
-            if (lambdaMatch[1] !== "_") {
-                variables.add(lambdaMatch[1]);
-            }
-        }
     }
     sendResponse(request, body, success = true, message) {
         this.emitter.fire({
@@ -3505,8 +3263,7 @@ class FelidaeDebugConfigurationProvider {
         config.request ?? (config.request = "launch");
         config.program ?? (config.program = activeDocument?.uri.fsPath ?? "${file}");
         const anchor = activeDocument?.uri ?? vscode.Uri.file(workspacePath ?? "");
-        config.interpreterPath ?? (config.interpreterPath = resolveDebugInterpreterPath(anchor));
-        config.compilerPath ?? (config.compilerPath = resolveCompilerPath(anchor));
+        config.interpreterPath ?? (config.interpreterPath = resolveInterpreterPath(anchor));
         config.stopOnEntry ?? (config.stopOnEntry = true);
         return config;
     }
@@ -3603,7 +3360,7 @@ function activate(context) {
         if (editor)
             refreshDiagnostics(editor.document);
         refreshMainContext();
-    }), vscode.languages.registerDocumentLinkProvider({ language: "felidae" }, new FelidaeDocumentLinkProvider()), vscode.languages.registerHoverProvider({ language: "felidae" }, new FelidaeHoverProvider()), vscode.languages.registerDefinitionProvider({ language: "felidae" }, new FelidaeDefinitionProvider()), vscode.languages.registerFoldingRangeProvider({ language: "felidae" }, new FelidaeFoldingRangeProvider()), vscode.languages.registerCodeLensProvider({ language: "felidae" }, new FelidaeCodeLensProvider()), vscode.languages.registerDocumentSemanticTokensProvider({ language: "felidae" }, new FelidaeSemanticTokensProvider(), semanticLegend), vscode.languages.registerDocumentSymbolProvider({ language: "felidae" }, new FelidaeDocumentSymbolProvider()), vscode.languages.registerCompletionItemProvider({ language: "felidae" }, new FelidaeCompletionItemProvider(), ".", "(", ","), vscode.languages.registerSignatureHelpProvider({ language: "felidae" }, new FelidaeSignatureHelpProvider(), { triggerCharacters: ["("], retriggerCharacters: [",", ":"] }), vscode.languages.registerCodeActionsProvider({ language: "felidae" }, new FelidaeCodeActionProvider(), { providedCodeActionKinds: FelidaeCodeActionProvider.providedCodeActionKinds }), vscode.languages.registerDocumentFormattingEditProvider({ language: "felidae" }, new formatter_1.FelidaeDocumentFormattingEditProvider()), vscode.languages.registerDocumentRangeFormattingEditProvider({ language: "felidae" }, new formatter_1.FelidaeDocumentRangeFormattingEditProvider()), vscode.languages.registerDocumentHighlightProvider({ language: "felidae" }, new FelidaeDocumentHighlightProvider()), vscode.languages.registerReferenceProvider({ language: "felidae" }, new FelidaeReferenceProvider()), vscode.languages.registerRenameProvider({ language: "felidae" }, new FelidaeRenameProvider()), vscode.languages.registerWorkspaceSymbolProvider(new FelidaeWorkspaceSymbolProvider()), vscode.debug.registerDebugConfigurationProvider("felidae", new FelidaeDebugConfigurationProvider()), vscode.debug.registerDebugAdapterDescriptorFactory("felidae", new FelidaeDebugAdapterFactory()));
+    }), vscode.languages.registerDocumentLinkProvider({ language: "felidae" }, new FelidaeDocumentLinkProvider()), vscode.languages.registerHoverProvider({ language: "felidae" }, new FelidaeHoverProvider()), vscode.languages.registerDefinitionProvider({ language: "felidae" }, new FelidaeDefinitionProvider()), vscode.languages.registerFoldingRangeProvider({ language: "felidae" }, new FelidaeFoldingRangeProvider()), vscode.languages.registerCodeLensProvider({ scheme: "file", language: "felidae" }, new FelidaeCodeLensProvider()), vscode.languages.registerDocumentSemanticTokensProvider({ language: "felidae" }, new FelidaeSemanticTokensProvider(), semanticLegend), vscode.languages.registerDocumentSymbolProvider({ language: "felidae" }, new FelidaeDocumentSymbolProvider()), vscode.languages.registerCompletionItemProvider({ language: "felidae" }, new FelidaeCompletionItemProvider(), ".", "(", ","), vscode.languages.registerSignatureHelpProvider({ language: "felidae" }, new FelidaeSignatureHelpProvider(), { triggerCharacters: ["("], retriggerCharacters: [",", ":"] }), vscode.languages.registerCodeActionsProvider({ language: "felidae" }, new FelidaeCodeActionProvider(), { providedCodeActionKinds: FelidaeCodeActionProvider.providedCodeActionKinds }), vscode.languages.registerDocumentFormattingEditProvider({ language: "felidae" }, new formatter_1.FelidaeDocumentFormattingEditProvider()), vscode.languages.registerDocumentRangeFormattingEditProvider({ language: "felidae" }, new formatter_1.FelidaeDocumentRangeFormattingEditProvider()), vscode.languages.registerDocumentHighlightProvider({ language: "felidae" }, new FelidaeDocumentHighlightProvider()), vscode.languages.registerReferenceProvider({ language: "felidae" }, new FelidaeReferenceProvider()), vscode.languages.registerRenameProvider({ language: "felidae" }, new FelidaeRenameProvider()), vscode.languages.registerWorkspaceSymbolProvider(new FelidaeWorkspaceSymbolProvider()), vscode.debug.registerDebugConfigurationProvider("felidae", new FelidaeDebugConfigurationProvider()), vscode.debug.registerDebugAdapterDescriptorFactory("felidae", new FelidaeDebugAdapterFactory()));
 }
 function deactivate() {
     // Returned so VS Code waits for the server process to exit instead of

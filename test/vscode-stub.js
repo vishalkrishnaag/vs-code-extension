@@ -37,7 +37,12 @@ class Diagnostic {}
 class Location {}
 class DocumentLink {}
 class FoldingRange {}
-class CodeLens {}
+class CodeLens {
+  constructor(range, command) {
+    this.range = range;
+    this.command = command;
+  }
+}
 class SemanticTokensLegend {}
 class EventEmitter { constructor() { this.event = () => ({ dispose() {} }); } fire() {} }
 class ThemeIcon {}

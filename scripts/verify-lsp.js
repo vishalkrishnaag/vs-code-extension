@@ -32,7 +32,7 @@ const {
 } = require("vscode-languageserver-protocol/node");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
-const debuggerName = process.platform === "win32" ? "felidae_debugger.exe" : "felidae_debugger";
+const debuggerName = process.platform === "win32" ? "felidae_debug.exe" : "felidae_debug";
 const stagedDebugger = process.platform === "win32"
   ? path.join(repoRoot, "build", "windows-x64", "release", "dist", "bin", debuggerName)
   : process.platform === "darwin"

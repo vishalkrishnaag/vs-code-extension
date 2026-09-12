@@ -2,7 +2,7 @@
   "name": "felidae-vscode",
   "displayName": "Felidae",
   "description": "Felidae .fx support with AST debugger diagnostics and Celidae fact visualization.",
-  "version": "0.0.2",
+  "version": "0.0.6",
   "publisher": "local",
   "repository": {
     "type": "git",
@@ -19,6 +19,8 @@
     "Programming Languages"
   ],
   "activationEvents": [
+    "onLanguage:felidae",
+    "onStartupFinished",
     "onDebugInitialConfigurations:felidae",
     "onDebugResolve:felidae"
   ],
@@ -131,12 +133,7 @@
               },
               "interpreterPath": {
                 "type": "string",
-                "description": "Path to the Felidae AST debugger executable.",
-                "default": ""
-              },
-              "compilerPath": {
-                "type": "string",
-                "description": "Path to the Felidae compiler executable.",
+                "description": "Path to the felidae interpreter executable (the same binary Run uses). There is no separate compiler or VM to run first.",
                 "default": ""
               },
               "stopOnEntry": {
@@ -172,12 +169,7 @@
         "felidae.interpreterPath": {
           "type": "string",
           "default": "",
-          "description": "Path to felidae_vm. When empty, staged release locations under dist/bin are searched. Relative paths are resolved from the workspace folder."
-        },
-        "felidae.compilerPath": {
-          "type": "string",
-          "default": "",
-          "description": "Path to felidae_compiler. When empty, staged release locations under dist/bin are searched. Relative paths are resolved from the workspace folder."
+          "description": "Path to the felidae interpreter (reads source.fx, parses it, and executes the AST directly - no separate compiler or VM). When empty, staged release locations under dist/bin are searched. Relative paths are resolved from the workspace folder."
         },
         "felidae.defaultQuery": {
           "type": "string",
@@ -192,7 +184,7 @@
         "felidae.debugInterpreterPath": {
           "type": "string",
           "default": "",
-          "description": "Path to felidae_debugger. When empty, staged release locations under dist/bin are searched. Relative paths are resolved from the workspace folder."
+          "description": "Path to felidae_debug, the AST diagnostics/symbols/LSP tool (not the interpreter itself - see felidae.interpreterPath for that). When empty, staged release locations under dist/bin are searched. Relative paths are resolved from the workspace folder."
         }
       }
     },
@@ -244,6 +236,18 @@
           "command": "felidae.formatDocument",
           "when": "resourceLangId == felidae",
           "group": "1_modification"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "felidae.runMain",
+          "when": "resourceLangId == felidae && felidaeHasMain",
+          "group": "navigation@1"
+        },
+        {
+          "command": "felidae.debugMain",
+          "when": "resourceLangId == felidae && felidaeHasMain",
+          "group": "navigation@2"
         }
       ]
     }

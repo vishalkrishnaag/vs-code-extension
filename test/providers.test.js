@@ -9,10 +9,12 @@ vscode.Location=class{constructor(u,r){this.uri=u;this.range=r;}};
 vscode.SymbolInformation=class{constructor(n,k,c,l){Object.assign(this,{name:n,kind:k,containerName:c,location:l});}};
 const EXT=path.resolve(__dirname, "..", "out", "extension.js");
 let src=fs.readFileSync(EXT,"utf8")+`
-module.exports.__nav={symbolOccurrences,identifierAt,isTopLevelSymbol,FelidaeDocumentHighlightProvider,FelidaeRenameProvider};`;
+module.exports.__nav={symbolOccurrences,identifierAt,isTopLevelSymbol,FelidaeDocumentHighlightProvider,FelidaeRenameProvider};
+module.exports.__codeLens={FelidaeCodeLensProvider};`;
 const mod=new Module(EXT); mod.filename=EXT; mod.paths=Module._nodeModulePaths(path.dirname(EXT));
 mod._compile(src,EXT);
 const N=mod.exports.__nav;
+const C=mod.exports.__codeLens;
 
 function doc(text){const lines=text.split("\n");return{languageId:"felidae",eol:1,lineCount:lines.length,
  uri:vscode.Uri.file("c:/t.fx"),getText:(r)=>{if(!r)return text;const l=lines[r.start.line];return l.slice(r.start.character,r.end.character);},lineAt:n=>({text:lines[n],range:new vscode.Range(new vscode.Position(n,0),new vscode.Position(n,lines[n].length))}),
@@ -53,5 +55,14 @@ const rn=new N.FelidaeRenameProvider();
 chk("prepareRename returns range", !!rn.prepareRename(d,new vscode.Position(0,3)), true);
 let blocked=false; try{ rn.prepareRename(doc("main() =>\n    system.print(value: 1)"),new vscode.Position(1,6)); }catch(e){ blocked=/builtin/.test(e.message); }
 chk("rename of builtin is refused", blocked, true);
+
+const codeLensDocument = doc(`main() =>
+    return 42
+end`);
+const lenses = new C.FelidaeCodeLensProvider().provideCodeLenses(codeLensDocument);
+chk("main declaration gets run/debug lenses", lenses.map((lens) => lens.command.command), [
+  "felidae.runMain",
+  "felidae.debugMain"
+]);
 
 console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail?1:0);

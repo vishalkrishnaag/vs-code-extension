@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // Regenerates the library-name list embedded in syntaxes/felidae.tmLanguage.json
-// from `felidae_debugger --list-libraries`, so the grammar never hand-copies a stale
+// from `felidae_debug --list-libraries`, so the grammar never hand-copies a stale
 // module list. TextMate grammars are static JSON loaded once by VS Code, so
 // this runs at build/package time rather than on every keystroke.
 //
-// Usage: node scripts/generate-libraries.js [path/to/felidae_debugger]
+// Usage: node scripts/generate-libraries.js [path/to/felidae_debug]
 // Falls back to the native release staging paths when no path is given.
 
 "use strict";
@@ -14,7 +14,7 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 function findDebugger(repoRoot) {
-  const executable = process.platform === "win32" ? "felidae_debugger.exe" : "felidae_debugger";
+  const executable = process.platform === "win32" ? "felidae_debug.exe" : "felidae_debug";
   const macArchitecture = process.arch === "arm64" ? "arm64" : "x86_64";
   const candidates = [
     process.argv[2],
@@ -39,7 +39,7 @@ function main() {
 
   if (!debuggerExecutable) {
     console.error(
-      "generate-libraries: no staged felidae_debugger executable found. " +
+      "generate-libraries: no staged felidae_debug executable found. " +
         "Create felidae_dist first or pass an explicit path. " +
         "Leaving syntaxes/felidae.tmLanguage.json untouched."
     );
