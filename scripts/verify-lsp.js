@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Drives `felidae_debug --lsp` through the real vscode-languageserver-protocol
+// Drives `felidae --lsp` through the real vscode-languageserver-protocol
 // stack - the same implementation vscode-languageclient uses underneath.
 //
-//   node scripts/verify-lsp.js [path/to/felidae_debug[.exe]] [file.fx]
+//   node scripts/verify-lsp.js [path/to/felidae[.exe]] [file.fx]
 //
 // A hand-rolled framing check is not enough: it happily accepts a response the
 // protocol library would reject. This connection performs the real
@@ -32,7 +32,7 @@ const {
 } = require("vscode-languageserver-protocol/node");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
-const debuggerName = process.platform === "win32" ? "felidae_debug.exe" : "felidae_debug";
+const debuggerName = process.platform === "win32" ? "felidae.exe" : "felidae";
 const stagedDebugger = process.platform === "win32"
   ? path.join(repoRoot, "build", "windows-x64", "release", "dist", "bin", debuggerName)
   : process.platform === "darwin"

@@ -1,7 +1,7 @@
 {
   "name": "felidae-vscode",
   "displayName": "Felidae",
-  "description": "Felidae .fx support with AST debugger diagnostics and Celidae fact visualization.",
+  "description": "Felidae .fx support with interpreter debugging, diagnostics, and language services.",
   "version": "0.0.6",
   "publisher": "local",
   "repository": {
@@ -98,11 +98,6 @@
         "icon": "$(terminal)"
       },
       {
-        "command": "felidae.visualize",
-        "title": "Felidae: Visualize",
-        "icon": "$(type-hierarchy-sub)"
-      },
-      {
         "command": "felidae.formatDocument",
         "title": "Felidae: Format Document",
         "icon": "$(list-flat)"
@@ -138,7 +133,7 @@
               },
               "stopOnEntry": {
                 "type": "boolean",
-                "description": "Pause before executing the program so VS Code Continue resumes Celidae.",
+                "description": "Pause before executing the program so VS Code Continue resumes Felidae.",
                 "default": true
               }
             }
@@ -175,16 +170,6 @@
           "type": "string",
           "default": "? Engineer(name: name)",
           "description": "Default query shown by the Felidae: Run Query command."
-        },
-        "felidae.celidaePath": {
-          "type": "string",
-          "default": "build/celidae.exe",
-          "description": "Path to the Celidae fact relationship visualizer. Relative paths are resolved from the workspace folder."
-        },
-        "felidae.debugInterpreterPath": {
-          "type": "string",
-          "default": "",
-          "description": "Path to felidae_debug, the AST diagnostics/symbols/LSP tool (not the interpreter itself - see felidae.interpreterPath for that). When empty, staged release locations under dist/bin are searched. Relative paths are resolved from the workspace folder."
         }
       }
     },
@@ -200,10 +185,6 @@
         },
         {
           "command": "felidae.runQuery",
-          "when": "resourceLangId == felidae"
-        },
-        {
-          "command": "felidae.visualize",
           "when": "resourceLangId == felidae"
         },
         {
@@ -224,11 +205,6 @@
         },
         {
           "command": "felidae.runQuery",
-          "when": "resourceLangId == felidae",
-          "group": "navigation"
-        },
-        {
-          "command": "felidae.visualize",
           "when": "resourceLangId == felidae",
           "group": "navigation"
         },
@@ -272,7 +248,6 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "cytoscape": "^3.34.0",
     "vscode-languageclient": "^9.0.1"
   },
   "icon": "icons/felidae-icon.png",

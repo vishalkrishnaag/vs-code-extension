@@ -8,9 +8,9 @@ import {
   TransportKind
 } from "vscode-languageclient/node";
 
-// Runs `felidae_debug --lsp` as a real language server.
+// Runs `felidae --lsp` as a real language server.
 //
-// Before this, diagnostics were produced by spawning `felidae_debug
+// Before this, diagnostics were produced by spawning `felidae
 // --check-json` once per debounced edit: a new process per keystroke burst,
 // no incremental state, and no way for the binary to serve anything else.
 // The server now owns diagnostics, document symbols and go-to-definition over
@@ -19,7 +19,7 @@ import {
 //
 // The client is strictly optional. If the executable is missing or fails to
 // start, `start()` reports false and the extension keeps its previous
-// text-scanning providers, so a workspace without a built felidae_debug still
+// text-scanning providers, so a workspace without a built felidae still
 // gets every feature it had before.
 
 let client: LanguageClient | undefined;
@@ -40,7 +40,7 @@ export async function start(serverPath: string, output: vscode.OutputChannel): P
   if (!serverPath || !fs.existsSync(serverPath)) {
     output.appendLine(
       `felidae: language server not started - '${serverPath}' not found. ` +
-        "Using built-in analysis. Set felidae.debugInterpreterPath to enable it."
+        "Using built-in analysis. Set felidae.interpreterPath to enable it."
     );
     return false;
   }
