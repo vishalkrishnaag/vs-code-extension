@@ -810,7 +810,12 @@ function getCallNameAtPosition(document, position) {
 function definitionPattern(name) {
     const parts = name.split(/[:.]/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     const qualifiedName = parts.join("\\s*[:.]\\s*");
-    return new RegExp(`^(?:${qualifiedName}(?:\\s+extend\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*\\(|class\\s+${qualifiedName}\\b)`);
+    // A function/method declaration line always starts with the mandatory
+    // `def` keyword now (a bare fact never has one, and never has `extend`
+    // followed by `(` either, so `def` is optional here without making this
+    // match a fact by that name too eagerly). Only `class Name` itself has no
+    // `def` prefix to allow for.
+    return new RegExp(`^(?:(?:def\\s+)?${qualifiedName}(?:\\s+extend\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*\\(|class\\s+${qualifiedName}\\b)`);
 }
 class FelidaeHoverProvider {
     provideHover(document, position) {
@@ -912,12 +917,15 @@ class FelidaeFoldingRangeProvider {
         // A line beginning a new top-level construct ends the previous region.
         // The optional `extend Parent` clause must be allowed here, or a fact
         // written as `Child extend Parent(...)` is not seen as starting anything
-        // and the whole run of facts collapses into one region.
-        const startsTopLevel = (line) => /^[A-Za-z_][A-Za-z0-9_:.]*(?:[ \t]+extend[ \t]+[A-Za-z_][A-Za-z0-9_]*)?[ \t]*\(/.test(line) ||
+        // and the whole run of facts collapses into one region. The optional
+        // `def` prefix is the same story: every declaration except a bare fact
+        // requires one now, so without allowing it here a run of `def`-prefixed
+        // methods collapsed into one region the same way.
+        const startsTopLevel = (line) => /^(?:def[ \t]+)?[A-Za-z_][A-Za-z0-9_:.]*(?:[ \t]+extend[ \t]+[A-Za-z_][A-Za-z0-9_]*)?[ \t]*\(/.test(line) ||
             /^import\b/.test(line) ||
             /^[A-Za-z_][A-Za-z0-9_]*[ \t]*:=/.test(line);
         const opensEndBlock = (line) => /^\s*class\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+extend\b.*)?\s*$/.test(line) ||
-            /^\s*[A-Za-z_][A-Za-z0-9_:.]*\s*\([^)]*\)\s*=>\s*(?:#.*)?$/.test(line);
+            /^\s*(?:def[ \t]+)?[A-Za-z_][A-Za-z0-9_:.]*\s*\([^)]*\)\s*=>\s*(?:#.*)?$/.test(line);
         const closesEndBlock = (line) => /^\s*end\.?\s*(?:#.*)?$/.test(line);
         // Explicit `end` is authoritative: fold precisely from its opening
         // declaration/class line to the matching closer, including nested blocks.
@@ -1133,7 +1141,15 @@ function isLibraryNamespace(name) {
 //
 // Across examples/ and v2_examples/ this takes true declarations found from
 // 356 to 618 while removing those false positives.
-const DECLARATION_PATTERN = /^([A-Za-z_][A-Za-z0-9_:.]*)(?:[ \t]+extend[ \t]+([A-Za-z_][A-Za-z0-9_]*))?[ \t]*\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)[ \t]*(=>|\.|$)/gm;
+//
+// The leading `(?:def[ \t]+)?` is later still: every declaration except a
+// bare fact now requires that keyword, so without allowing it here this
+// stopped matching any method or function at all - only bare facts (which
+// never had `def`) kept working, which is why the outline, completion, go-
+// to-definition and every other provider built on this pattern went quiet
+// for `def`-prefixed source the moment that keyword became mandatory.
+// Non-capturing, so match[1..4] keep meaning name/extends/args/terminator.
+const DECLARATION_PATTERN = /^(?:def[ \t]+)?([A-Za-z_][A-Za-z0-9_:.]*)(?:[ \t]+extend[ \t]+([A-Za-z_][A-Za-z0-9_]*))?[ \t]*\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)[ \t]*(=>|\.|$)/gm;
 const GLOBAL_BINDING_PATTERN = /^([A-Za-z_][A-Za-z0-9_]*)\s*:=/gm;
 class FelidaeDocumentSymbolProvider {
     provideDocumentSymbols(document) {
@@ -1953,10 +1969,15 @@ async function runQuery(uri) {
     runInTerminal(interpreterPath, [programPath, normalizedQuery], path.dirname(programPath));
 }
 // A `main` *declaration*, which like every Felidae declaration sits at column
-// 0 and is followed by `=>`. Anchoring matters: `^\s*` also matched an
-// indented `main(...)` call inside another method's body, which made Run and
-// Debug appear for files that have no entry point to run.
-const MAIN_DECLARATION_PATTERN = /^main[ \t]*\([^)]*\)[ \t]*=>/m;
+// 0, starts with the mandatory `def` keyword, and is followed by `=>`.
+// Anchoring matters: `^\s*` also matched an indented `main(...)` call inside
+// another method's body, which made Run and Debug appear for files that have
+// no entry point to run. The `def` prefix is not optional here either - a
+// bare `main() =>` with no `def` is no longer valid Felidae at all (every
+// declaration except a bare fact requires it), so this pattern requiring it
+// matches exactly what can actually run, not a syntax this language used to
+// accept.
+const MAIN_DECLARATION_PATTERN = /^def[ \t]+main[ \t]*\([^)]*\)[ \t]*=>/m;
 function hasMainMethod(document) {
     return MAIN_DECLARATION_PATTERN.test(document.getText());
 }

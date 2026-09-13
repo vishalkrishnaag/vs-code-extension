@@ -48,15 +48,23 @@ chk("Employee is top-level", N.isTopLevelSymbol(d,"Employee"), true);
 chk("HasRole is top-level", N.isTopLevelSymbol(d,"HasRole"), true);
 chk("x (local) is not top-level", N.isTopLevelSymbol(d,"x"), false);
 
+// DECLARATION_PATTERN must recognize a `def`-prefixed method too, not only
+// the bare (pre-`def`) form HasRole above already covers - `def` is
+// mandatory for every method now, so a document made entirely of `def`
+// declarations going undetected here is exactly the outline/go-to-
+// definition/completion regression that motivated this pattern's fix.
+const defDoc=doc(`def Greet(name: string) =>\n    return name`);
+chk("def-prefixed method is top-level", N.isTopLevelSymbol(defDoc,"Greet"), true);
+
 const hl=new N.FelidaeDocumentHighlightProvider();
 chk("highlight count", hl.provideDocumentHighlights(d,new vscode.Position(0,3)).length, 2);
 
 const rn=new N.FelidaeRenameProvider();
 chk("prepareRename returns range", !!rn.prepareRename(d,new vscode.Position(0,3)), true);
-let blocked=false; try{ rn.prepareRename(doc("main() =>\n    system.print(value: 1)"),new vscode.Position(1,6)); }catch(e){ blocked=/builtin/.test(e.message); }
+let blocked=false; try{ rn.prepareRename(doc("def main() =>\n    system.print(value: 1)"),new vscode.Position(1,6)); }catch(e){ blocked=/builtin/.test(e.message); }
 chk("rename of builtin is refused", blocked, true);
 
-const codeLensDocument = doc(`main() =>
+const codeLensDocument = doc(`def main() =>
     return 42
 end`);
 const lenses = new C.FelidaeCodeLensProvider().provideCodeLenses(codeLensDocument);
