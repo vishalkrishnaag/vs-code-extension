@@ -1,4 +1,21 @@
-.vscode/**
+# esbuild.js bundles src/** (and vscode-languageclient from node_modules)
+# into dist/extension.js, which is package.json's "main" and the only code
+# the packaged VSIX needs to run - everything below is either the pre-bundle
+# source, dev/build tooling, or dependency trees a bundle already inlined.
+.git
 .gitignore
+.vscode/**
+.vscodeignore
 
 *.vsix
+*.map
+
+node_modules/**
+out/**
+src/**
+test/**
+scripts/**
+
+tsconfig.json
+esbuild.js
+package-lock.json

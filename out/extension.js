@@ -72,25 +72,33 @@ function builtinSourceName(name) {
     ]);
     return legacyColonBuiltins.has(name) ? name : name.replace(/:/g, ".");
 }
-function quotePowerShell(value) {
-    return `'${String(value).replace(/'/g, "''")}'`;
-}
 function quotePosixShell(value) {
     return `'${String(value).replace(/'/g, `'"'"'`)}'`;
 }
-function nativeTerminalInvocation(executablePath, args) {
-    const quote = process.platform === "win32" ? quotePowerShell : quotePosixShell;
-    const prefix = process.platform === "win32" ? "& " : "";
-    return `${prefix}${quote(executablePath)} ${args.map(quote).join(" ")}`.trim();
-}
-function felidaeTerminalCommand(commands) {
-    const invocations = commands.map(({ executablePath, args }) => nativeTerminalInvocation(executablePath, args));
+function runInTerminal(executablePath, args, cwd) {
+    let command;
+    const env = {};
     if (process.platform === "win32") {
-        return invocations.map((command, index) => index === 0
-            ? command
-            : `if ($LASTEXITCODE -eq 0) { ${command} }`).join("; ");
+        // Delayed expansion happens after CMD metacharacter parsing. Keep user
+        // values out of command text; encode arguments for the native CRT parser.
+        env.FELIDAE_RUN_EXE = executablePath;
+        const argumentsText = args.map((arg, index) => {
+            env[`FELIDAE_RUN_ARG_${index}`] = arg
+                .replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1');
+            return `"!FELIDAE_RUN_ARG_${index}!"`;
+        });
+        command = ['"!FELIDAE_RUN_EXE!"', ...argumentsText].join(" ");
     }
-    return invocations.join(" && ");
+    else {
+        command = [executablePath, ...args].map(quotePosixShell).join(" ");
+    }
+    const terminal = vscode.window.createTerminal({
+        name: "Felidae", cwd, env,
+        shellPath: process.platform === "win32" ? (process.env.ComSpec || "cmd.exe") : "/bin/sh",
+        shellArgs: process.platform === "win32" ? ["/d", "/v:on"] : []
+    });
+    terminal.show();
+    terminal.sendText(command);
 }
 function documentRange(document, line, start, end) {
     return new vscode.Range(new vscode.Position(line, start), new vscode.Position(line, Math.max(end, start + 1)));
@@ -971,7 +979,7 @@ class FelidaeCodeLensProvider {
             const text = document.lineAt(line).text;
             // Same column-0 anchoring as hasMainMethod: an indented `main(...)`
             // call is a call, not the entry point.
-            if (!/^main[ \t]*\([^)]*\)[ \t]*=>(?:[ \t]*(?:\(\))?)?(?:[ \t]*#.*)?$/.test(text))
+            if (!MAIN_DECLARATION_PATTERN.test(text))
                 continue;
             const range = new vscode.Range(line, text.indexOf("main"), line, text.indexOf("main") + 4);
             lenses.push(new vscode.CodeLens(range, {
@@ -1066,135 +1074,6 @@ function isInsideMethodHead(tokens, index) {
     }
     return false;
 }
-async function visualizeFelidae(context, uri) {
-    const document = await getFelidaeDocument(uri);
-    if (!document) {
-        vscode.window.showWarningMessage("Open a Felidae .fx file before visualizing.");
-        return;
-    }
-    const graph = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "Felidae: loading runtime graph from Celidae..." }, () => loadRuntimeGraph(document));
-    const runtimeGraph = graph ?? staticGraphToRuntimeGraph(buildFelidaeGraph(document));
-    const panel = vscode.window.createWebviewPanel("felidaeVisualizer", `Felidae Graph: ${path.basename(document.uri.fsPath)}`, vscode.ViewColumn.Beside, {
-        enableScripts: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "media")]
-    });
-    const cytoscapeUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "media", "cytoscape.min.js"));
-    panel.webview.html = visualizationHtml(cytoscapeUri, runtimeGraph);
-}
-async function loadRuntimeGraph(document) {
-    const interpreterPath = resolveCelidaePath(document.uri);
-    if (!fs.existsSync(interpreterPath)) {
-        vscode.window.showWarningMessage(`Celidae visualizer not found. Using static source graph instead: ${interpreterPath}`);
-        return undefined;
-    }
-    if (document.isDirty) {
-        await document.save();
-    }
-    return new Promise((resolve) => {
-        // The debugger graph is exchanged through stdout markers only; no JSON file is written.
-        childProcess.execFile(interpreterPath, [document.uri.fsPath, "--visualize-data-json", "--load-imports"], { cwd: path.dirname(document.uri.fsPath), windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
-            if (error) {
-                vscode.window.showWarningMessage(`Felidae runtime graph failed. Using static source graph instead: ${stderr || error.message}`);
-                resolve(undefined);
-                return;
-            }
-            const match = /FELIDAE_GRAPH_BEGIN\s*([\s\S]*?)\s*FELIDAE_GRAPH_END/.exec(stdout);
-            if (!match) {
-                vscode.window.showWarningMessage("Celidae did not return a graph snapshot. Using static source graph instead.");
-                resolve(undefined);
-                return;
-            }
-            try {
-                resolve(validateRuntimeGraph(JSON.parse(match[1])));
-            }
-            catch (parseError) {
-                vscode.window.showWarningMessage(`Felidae graph snapshot was invalid JSON. Using static source graph instead: ${String(parseError)}`);
-                resolve(undefined);
-            }
-        });
-    });
-}
-function validateRuntimeGraph(value) {
-    const graph = value;
-    const rawNodes = Array.isArray(graph.nodes) ? graph.nodes : [];
-    const rawEdges = Array.isArray(graph.edges) ? graph.edges : [];
-    const nodes = rawNodes
-        .filter((node) => {
-        const candidate = node;
-        return typeof candidate.id === "string" &&
-            typeof candidate.label === "string" &&
-            typeof candidate.kind === "string";
-    });
-    const nodeIds = new Set(nodes.map((node) => node.id));
-    const edges = rawEdges
-        .filter((edge) => {
-        const candidate = edge;
-        return typeof candidate.from === "string" &&
-            typeof candidate.to === "string" &&
-            typeof candidate.label === "string" &&
-            nodeIds.has(candidate.from) &&
-            nodeIds.has(candidate.to);
-    });
-    return { nodes, edges };
-}
-function buildFelidaeGraph(document) {
-    const graph = { nodes: new Map(), edges: [] };
-    const text = document.getText();
-    const lexed = lexDocument(document);
-    // Was a second, divergent copy of DECLARATION_PATTERN carrying the same
-    // unbounded-`[\s\S]*?` and leading-whitespace bugs, so the visualizer's
-    // graph disagreed with the outline about which declarations exist.
-    const declaration = new RegExp(DECLARATION_PATTERN);
-    let match;
-    while ((match = declaration.exec(text)) !== null) {
-        const name = normalizeGraphName(match[1]);
-        const parent = match[2] ? normalizeGraphName(match[2]) : undefined;
-        const bodyMarker = match[4];
-        const bodyEnd = bodyMarker === "=>" ? statementEndOffset(document, lexed.tokens, declaration.lastIndex) : undefined;
-        const body = bodyEnd !== undefined ? text.slice(declaration.lastIndex, bodyEnd) : "";
-        const kind = isLibraryName(name) ? "library" : bodyMarker === "=>" ? "method" : "fact";
-        graph.nodes.set(name, kind);
-        if (kind === "fact") {
-            for (const field of collectHeadFields(match[3])) {
-                const fieldName = `${name}.${field}`;
-                graph.nodes.set(fieldName, "field");
-                graph.edges.push({ from: name, to: fieldName, label: "field" });
-            }
-        }
-        if (parent) {
-            graph.nodes.set(parent, "fact");
-            graph.edges.push({ from: name, to: parent });
-        }
-        if (body) {
-            for (const call of collectGraphCalls(body)) {
-                if (call === name || ["return", "where", "else", "lambda", "then"].includes(call))
-                    continue;
-                graph.nodes.set(call, isLibraryName(call) ? "library" : "method");
-                graph.edges.push({ from: name, to: call });
-            }
-        }
-    }
-    return graph;
-}
-function staticGraphToRuntimeGraph(graph) {
-    const nodes = [];
-    for (const [name, kind] of graph.nodes) {
-        nodes.push({ id: kind + ":" + name, label: name, kind });
-    }
-    const nodeIds = new Set(nodes.map((node) => node.id));
-    const edges = graph.edges
-        .map((edge) => {
-        const fromKind = graph.nodes.get(edge.from) ?? "method";
-        const toKind = graph.nodes.get(edge.to) ?? "method";
-        return { from: fromKind + ":" + edge.from, to: toKind + ":" + edge.to, label: edge.label ?? "calls" };
-    })
-        .filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to));
-    return { nodes, edges };
-}
-// Splits a declaration head's raw `(...)` text into its named parameters,
-// keeping the annotation after the `:` so signature help can show
-// `name: string` rather than a bare `name`. Depth-aware so a nested default
-// like `opts: {a: 1, b: 2}` stays one parameter.
 function collectHeadParams(argsText) {
     const params = [];
     const seen = new Set();
@@ -1226,29 +1105,6 @@ function collectHeadParams(argsText) {
 // Name-only view of collectHeadParams, for the callers that only label fields.
 function collectHeadFields(argsText) {
     return collectHeadParams(argsText).map((param) => param.name);
-}
-function statementEndOffset(document, tokens, offset) {
-    for (let i = 0; i < tokens.length; i++) {
-        const token = tokens[i];
-        const tokenOffset = document.offsetAt(new vscode.Position(token.line, token.start));
-        if (tokenOffset < offset)
-            continue;
-        const next = tokens[i + 1];
-        const accessorDot = token.kind === "dot" && next?.kind === "ident" && next.line === token.line;
-        if (token.kind === "dot" && !accessorDot) {
-            return tokenOffset;
-        }
-    }
-    return undefined;
-}
-function collectGraphCalls(text) {
-    const calls = [];
-    const callPattern = /\b([A-Za-z_][A-Za-z0-9_]*(?:(?:[:.])[A-Za-z_][A-Za-z0-9_]*)*)\s*\(/g;
-    let match;
-    while ((match = callPattern.exec(text)) !== null) {
-        calls.push(normalizeGraphName(match[1]));
-    }
-    return calls;
 }
 function normalizeGraphName(name) {
     return name.replace(/\./g, ":");
@@ -1367,9 +1223,9 @@ function namedArgCompletion(name, detail) {
 //
 // Resolution order, most to least authoritative:
 //   1. builtinDocs - params derived at build time from the documented example.
-//   2. symbolSummaryCache - real parameters parsed by felidae_debug from the
+//   2. symbolSummaryCache - real parameters parsed by felidae from the
 //      AST, including types, for user-defined methods and facts.
-//   3. DECLARATION_PATTERN text scan - the fallback when felidae_debug is
+//   3. DECLARATION_PATTERN text scan - the fallback when felidae is
 //      missing, older than --symbols-json, or has not answered yet.
 function resolveCall(document, callName) {
     const normalized = callName.replace(/\./g, ":");
@@ -1470,11 +1326,11 @@ function completionsForScope(document, tokens, index) {
     const cached = symbolSummaryCache.get(document.uri.toString());
     if (cached) {
         for (const method of cached.methods)
-            add(method.name, vscode.CompletionItemKind.Method, "method (felidae_debug)");
+            add(method.name, vscode.CompletionItemKind.Method, "method (felidae)");
         for (const fact of cached.facts)
-            add(fact.name, vscode.CompletionItemKind.Struct, "fact (felidae_debug)");
+            add(fact.name, vscode.CompletionItemKind.Struct, "fact (felidae)");
         for (const global of cached.globals)
-            add(global.name, vscode.CompletionItemKind.Constant, "global (felidae_debug)");
+            add(global.name, vscode.CompletionItemKind.Constant, "global (felidae)");
     }
     return [...items.values()];
 }
@@ -1775,796 +1631,31 @@ class FelidaeWorkspaceSymbolProvider {
         return symbols;
     }
 }
-function cytoscapeElements(graph) {
-    const nodes = graph.nodes.map((node) => ({
-        data: {
-            id: node.id,
-            label: node.label,
-            kind: node.kind,
-            detail: node.detail ?? ""
-        }
-    }));
-    const edges = graph.edges.map((edge, index) => ({
-        data: {
-            id: `edge:${index}`,
-            source: edge.from,
-            target: edge.to,
-            label: edge.label,
-            kind: edge.label
-        }
-    }));
-    return [...nodes, ...edges];
-}
-function visualizationHtml(cytoscapeUri, graph) {
-    const nonce = String(Date.now());
-    const elementsJson = escapeScriptJson(JSON.stringify(cytoscapeElements(graph)));
-    const graphJson = escapeScriptJson(JSON.stringify(graph));
-    return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
-  <style>
-    :root {
-      --line: var(--vscode-panel-border);
-      --muted: var(--vscode-descriptionForeground);
-      --surface: color-mix(in srgb, var(--vscode-editor-background), var(--vscode-sideBar-background) 24%);
-      --surface-2: color-mix(in srgb, var(--vscode-editor-background), var(--vscode-sideBar-background) 42%);
-      --accent: var(--vscode-focusBorder);
-    }
-    body {
-      margin: 0;
-      background: var(--vscode-editor-background);
-      color: var(--vscode-editor-foreground);
-      font-family: var(--vscode-font-family);
-      overflow: hidden;
-    }
-    .app {
-      display: grid;
-      grid-template-rows: auto 1fr;
-      height: 100vh;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--line);
-      color: var(--vscode-descriptionForeground);
-      font-size: 12px;
-    }
-    .title {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      min-width: 220px;
-    }
-    .title strong {
-      color: var(--vscode-editor-foreground);
-      font-size: 13px;
-    }
-    .workspace {
-      display: grid;
-      grid-template-columns: minmax(420px, 1fr) 360px;
-      min-height: 0;
-    }
-    .main {
-      display: grid;
-      grid-template-rows: auto 1fr;
-      min-width: 0;
-      min-height: 0;
-      border-right: 1px solid var(--line);
-    }
-    .tabs, .toolbar, .filters, .legend, .summary {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 6px;
-    }
-    .tabs {
-      padding: 8px 10px;
-      border-bottom: 1px solid var(--line);
-      background: var(--surface);
-    }
-    .tab {
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: var(--vscode-button-secondaryBackground);
-      color: var(--vscode-button-secondaryForeground);
-      padding: 5px 11px;
-      cursor: pointer;
-      transition: background-color .12s ease, border-color .12s ease, transform .06s ease;
-    }
-    .tab:hover { transform: translateY(-1px); }
-    .tab.active {
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      border-color: var(--accent);
-      box-shadow: 0 0 0 1px var(--accent) inset;
-    }
-    .view {
-      display: none;
-      min-height: 0;
-      overflow: auto;
-    }
-    .view.active { display: block; }
-    .view.graph-view {
-      overflow: hidden;
-      position: relative;
-    }
-    .graph-toolbar {
-      position: absolute;
-      z-index: 2;
-      left: 10px;
-      right: 10px;
-      top: 10px;
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      gap: 8px;
-      pointer-events: none;
-    }
-    .graph-toolbar > * { pointer-events: auto; }
-    .search {
-      min-width: 220px;
-      border: 1px solid var(--line);
-      border-radius: 5px;
-      background: var(--vscode-input-background);
-      color: var(--vscode-input-foreground);
-      padding: 5px 8px;
-      transition: border-color .12s ease, box-shadow .12s ease;
-    }
-    .search:focus {
-      outline: none;
-      border-color: var(--accent);
-      box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 75%);
-    }
-    .panel {
-      padding: 12px;
-      min-height: 0;
-    }
-    .side {
-      min-height: 0;
-      overflow: auto;
-      background: var(--surface);
-    }
-    .section {
-      border-bottom: 1px solid var(--line);
-      padding: 12px;
-    }
-    .section h2 {
-      margin: 0 0 8px;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--vscode-editor-foreground);
-    }
-    .metric-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 8px;
-      margin-bottom: 12px;
-    }
-    .metric {
-      border: 1px solid var(--line);
-      border-left: 3px solid var(--accent);
-      border-radius: 6px;
-      padding: 8px 10px;
-      background: var(--surface-2);
-      transition: border-color .15s ease;
-    }
-    .metric:hover { border-color: var(--accent); }
-    .metric b {
-      display: block;
-      font-size: 20px;
-      color: var(--vscode-editor-foreground);
-      line-height: 1.1;
-    }
-    .metric span { color: var(--muted); font-size: 11px; }
-    .chart {
-      width: 100%;
-      height: 210px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--vscode-editor-background);
-      margin-bottom: 12px;
-      box-shadow: 0 1px 3px rgba(0,0,0,.12);
-    }
-    .quality-list, .detail-list {
-      display: grid;
-      gap: 8px;
-    }
-    .notice {
-      border-left: 3px solid var(--vscode-editorWarning-foreground, #d97706);
-      background: color-mix(in srgb, var(--vscode-editorWarning-foreground, #d97706), transparent 88%);
-      padding: 8px;
-      font-size: 12px;
-    }
-    .ok {
-      border-left-color: var(--vscode-testing-iconPassed, #22c55e);
-      background: color-mix(in srgb, var(--vscode-testing-iconPassed, #22c55e), transparent 90%);
-    }
-    table {
-      border-collapse: collapse;
-      width: 100%;
-      font-size: 12px;
-    }
-    th, td {
-      border-bottom: 1px solid var(--line);
-      padding: 6px 8px;
-      text-align: left;
-      vertical-align: top;
-    }
-    th {
-      position: sticky;
-      top: 0;
-      z-index: 1;
-      background: var(--surface);
-      color: var(--muted);
-      font-weight: 600;
-    }
-    tr:hover td { background: var(--surface); }
-    label {
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      padding: 4px 7px;
-      color: var(--vscode-foreground);
-      background: var(--surface-2);
-    }
-    input { margin: 0; }
-    button {
-      border: 1px solid var(--vscode-button-border, transparent);
-      border-radius: 5px;
-      background: var(--vscode-button-secondaryBackground);
-      color: var(--vscode-button-secondaryForeground);
-      padding: 4px 9px;
-      cursor: pointer;
-      transition: background-color .12s ease, transform .06s ease;
-    }
-    button:hover { background: var(--vscode-button-secondaryHoverBackground); }
-    button:active { transform: translateY(1px); }
-    #graph {
-      width: 100%;
-      height: 100%;
-      background:
-        linear-gradient(var(--line) 1px, transparent 1px),
-        linear-gradient(90deg, var(--line) 1px, transparent 1px);
-      background-size: 28px 28px;
-      background-color: var(--vscode-editor-background);
-    }
-    .legend span {
-      border: 1px solid var(--line);
-      border-radius: 5px;
-      padding: 2px 7px;
-      transition: border-color .12s ease;
-    }
-    .legend span:hover { border-color: var(--accent); }
-    .tag {
-      display: inline-block;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      padding: 1px 5px;
-      margin: 0 3px 3px 0;
-      color: var(--muted);
-    }
-    .hidden { display: none; }
-  </style>
-</head>
-<body>
-  <div class="app">
-    <header>
-      <div class="title">
-        <strong>Felidae Visual Analytics</strong>
-        <span>Debugger snapshot for data querying, noisy-log profiling, and exportable diagrams.</span>
-      </div>
-      <div class="summary" id="summary"></div>
-      <div class="toolbar">
-        <button id="downloadSvg">Export SVG</button>
-        <button id="downloadHtml">Export HTML</button>
-      </div>
-    </header>
-    <div class="workspace">
-      <main class="main">
-        <nav class="tabs">
-          <button class="tab active" data-view="graphView">Graph</button>
-          <button class="tab" data-view="profileView">Profile</button>
-          <button class="tab" data-view="qualityView">Quality</button>
-          <button class="tab" data-view="tableView">Data Table</button>
-          <input id="search" class="search" placeholder="filter labels, kinds, details, edge labels">
-        </nav>
-        <section id="graphView" class="view graph-view active">
-          <div class="graph-toolbar">
-            <div class="toolbar">
-              <button id="fit">Fit</button>
-              <button id="data">Force</button>
-              <button id="flow">Flow</button>
-              <button id="circle">Circle</button>
-            </div>
-            <div class="filters">
-              <label><input type="checkbox" data-kind="fact" checked> facts</label>
-              <label><input type="checkbox" data-kind="global" checked> outputs</label>
-              <label><input type="checkbox" data-kind="method" checked> methods</label>
-              <label><input type="checkbox" data-kind="library" checked> libraries</label>
-              <label><input type="checkbox" data-kind="field"> fields</label>
-            </div>
-          </div>
-          <div id="graph"></div>
-        </section>
-        <section id="profileView" class="view panel">
-          <div class="metric-grid" id="metrics"></div>
-          <svg id="kindChart" class="chart" role="img"></svg>
-          <svg id="edgeChart" class="chart" role="img"></svg>
-        </section>
-        <section id="qualityView" class="view panel">
-          <div class="quality-list" id="quality"></div>
-        </section>
-        <section id="tableView" class="view panel">
-          <table>
-            <thead><tr><th>Kind</th><th>Label</th><th>Degree</th><th>Signals</th><th>Detail</th></tr></thead>
-            <tbody id="nodeRows"></tbody>
-          </table>
-        </section>
-      </main>
-      <aside class="side">
-        <div class="section">
-          <h2>Selection</h2>
-          <div id="selection" class="detail-list">Select a graph node or table row.</div>
-        </div>
-        <div class="section">
-          <h2>Legend</h2>
-          <div class="legend">
-            <span>facts</span><span>fields</span><span>outputs</span><span>methods</span><span>libraries</span>
-          </div>
-        </div>
-        <div class="section">
-          <h2>Data-Log Use</h2>
-          <div class="detail-list">
-            <div class="notice ok">Use Felidae rules and lambda filters to shape the snapshot before visualizing.</div>
-            <div class="notice">Quality warnings highlight isolated types, duplicate labels, high fan-out, and sparse metadata that often appear in faulty or noisy logs.</div>
-          </div>
-        </div>
-      </aside>
-    </div>
-  </div>
-  <script nonce="${nonce}" src="${cytoscapeUri}"></script>
-  <script nonce="${nonce}">
-    const graph = JSON.parse("${graphJson}");
-    const elements = JSON.parse("${elementsJson}");
-    const colors = {
-      fact: { bg: "#dbeafe", border: "#3b82f6", text: "#172554" },
-      field: { bg: "#f8fafc", border: "#94a3b8", text: "#334155" },
-      global: { bg: "#ede9fe", border: "#7c3aed", text: "#2e1065" },
-      method: { bg: "#dcfce7", border: "#22c55e", text: "#052e16" },
-      library: { bg: "#ffedd5", border: "#f97316", text: "#431407" },
-      value: { bg: "#ffffff", border: "#d1d5db", text: "#1f2937" }
-    };
-    const visibleKinds = new Set(["fact", "global", "method", "library"]);
-    const state = { query: "" };
-    const nodeById = new Map(graph.nodes.map(node => [node.id, node]));
-    const degree = new Map(graph.nodes.map(node => [node.id, { in: 0, out: 0 }]));
-    graph.edges.forEach(edge => {
-      if (degree.has(edge.from)) degree.get(edge.from).out++;
-      if (degree.has(edge.to)) degree.get(edge.to).in++;
-    });
-    const countsByKind = countBy(graph.nodes, node => node.kind);
-    const countsByEdge = countBy(graph.edges, edge => edge.label || "edge");
-    const duplicateLabels = duplicateGroups(graph.nodes, node => node.label);
-    const qualitySignals = buildQualitySignals();
-    const cy = cytoscape({
-      container: document.getElementById("graph"),
-      elements,
-      minZoom: 0.12,
-      maxZoom: 2.5,
-      wheelSensitivity: 0.18,
-      style: [
-        {
-          selector: "node",
-          style: {
-            "shape": "round-rectangle",
-            "width": "label",
-            "height": "label",
-            "padding": "10px",
-            "label": "data(label)",
-            "font-size": 12,
-            "font-family": "var(--vscode-font-family)",
-            "text-valign": "center",
-            "text-halign": "center",
-            "background-color": ele => (colors[ele.data("kind")] || colors.value).bg,
-            "border-color": ele => (colors[ele.data("kind")] || colors.value).border,
-            "color": ele => (colors[ele.data("kind")] || colors.value).text,
-            "border-width": 1.4,
-            "text-wrap": "wrap",
-            "text-max-width": 130
-          }
-        },
-        { selector: "node[kind = 'field']", style: { "shape": "ellipse", "font-size": 10, "padding": "6px" } },
-        { selector: "node[kind = 'global']", style: { "shape": "hexagon" } },
-        { selector: "node[kind = 'library']", style: { "shape": "tag" } },
-        {
-          selector: "edge",
-          style: {
-            "curve-style": "bezier",
-            "target-arrow-shape": "triangle",
-            "target-arrow-color": "#64748b",
-            "line-color": "#94a3b8",
-            "width": 1.3,
-            "label": "data(label)",
-            "font-size": 9,
-            "text-background-color": "var(--vscode-editor-background)",
-            "text-background-opacity": 0.86,
-            "text-background-padding": "2px",
-            "color": "#64748b"
-          }
-        },
-        { selector: ":selected", style: { "border-width": 3, "line-color": "#f59e0b", "target-arrow-color": "#f59e0b" } }
-      ],
-      layout: {
-        name: "cose",
-        animate: false,
-        randomize: true,
-        nodeRepulsion: 9500,
-        idealEdgeLength: 110,
-        edgeElasticity: 80,
-        nestingFactor: 1.2,
-        gravity: 0.9,
-        numIter: 1800
-      }
-    });
-    function countBy(items, keyFn) {
-      const result = {};
-      items.forEach(item => {
-        const key = keyFn(item) || "unknown";
-        result[key] = (result[key] || 0) + 1;
-      });
-      return result;
-    }
-    function duplicateGroups(items, keyFn) {
-      const groups = {};
-      items.forEach(item => {
-        const key = keyFn(item);
-        if (!key) return;
-        (groups[key] ||= []).push(item);
-      });
-      return Object.values(groups).filter(group => group.length > 1);
-    }
-    function nodeMatches(node) {
-      if (!state.query) return true;
-      const needle = state.query.toLowerCase();
-      const d = degree.get(node.id) || { in: 0, out: 0 };
-      const edgeLabels = graph.edges
-        .filter(edge => edge.from === node.id || edge.to === node.id)
-        .map(edge => edge.label)
-        .join(" ");
-      return [node.label, node.kind, node.detail || "", edgeLabels, String(d.in), String(d.out)]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle);
-    }
-    function buildQualitySignals() {
-      const signals = [];
-      const isolated = graph.nodes.filter(node => {
-        const d = degree.get(node.id);
-        return d && d.in + d.out === 0;
-      });
-      if (isolated.length) signals.push({
-        level: "warn",
-        title: "Isolated data points",
-        body: isolated.slice(0, 12).map(node => node.label).join(", ") + (isolated.length > 12 ? " ..." : ""),
-        count: isolated.length
-      });
-      if (duplicateLabels.length) signals.push({
-        level: "warn",
-        title: "Duplicate labels across nodes",
-        body: duplicateLabels.slice(0, 8).map(group => group[0].label + " x" + group.length).join(", "),
-        count: duplicateLabels.length
-      });
-      const highFanout = graph.nodes.filter(node => (degree.get(node.id)?.out || 0) >= 8);
-      if (highFanout.length) signals.push({
-        level: "warn",
-        title: "High fan-out hubs",
-        body: highFanout.map(node => node.label + " -> " + degree.get(node.id).out).join(", "),
-        count: highFanout.length
-      });
-      const sparse = graph.nodes.filter(node => (node.kind === "fact" || node.kind === "global") && !node.detail && (degree.get(node.id)?.out || 0) === 0);
-      if (sparse.length) signals.push({
-        level: "info",
-        title: "Sparse runtime metadata",
-        body: sparse.slice(0, 10).map(node => node.label).join(", ") + (sparse.length > 10 ? " ..." : ""),
-        count: sparse.length
-      });
-      const unlabeledEdges = graph.edges.filter(edge => !edge.label || edge.label === "edge");
-      if (unlabeledEdges.length) signals.push({
-        level: "info",
-        title: "Unlabeled relationships",
-        body: "Add explicit rule names or richer runtime metadata when these relationships matter for data analysis.",
-        count: unlabeledEdges.length
-      });
-      if (!signals.length) signals.push({
-        level: "ok",
-        title: "No obvious quality warnings",
-        body: "The snapshot has connected nodes, unique labels, and labeled relationships.",
-        count: 0
-      });
-      return signals;
-    }
-    function applyFilters() {
-      cy.batch(() => {
-        cy.nodes().forEach(node => {
-          const model = nodeById.get(node.id());
-          const visible = visibleKinds.has(node.data("kind")) && (!model || nodeMatches(model));
-          node.style("display", visible ? "element" : "none");
-        });
-        cy.edges().forEach(edge => {
-          const visible = edge.source().visible() && edge.target().visible();
-          edge.style("display", visible ? "element" : "none");
-        });
-      });
-      renderTables();
-    }
-    function runLayout(name) {
-      const options = name === "breadthfirst"
-        ? { name, directed: true, spacingFactor: 1.18, animate: true, animationDuration: 260 }
-        : name === "circle"
-          ? { name: "circle", animate: true, animationDuration: 260, spacingFactor: 1.18 }
-          : { name: "cose", animate: true, animationDuration: 260, randomize: false, nodeRepulsion: 9500, idealEdgeLength: 110, edgeElasticity: 80, gravity: 0.9, numIter: 900 };
-      cy.layout(options).run();
-    }
-    function renderSummary() {
-      document.getElementById("summary").innerHTML = [
-        ["Nodes", graph.nodes.length],
-        ["Edges", graph.edges.length],
-        ["Fact types", countsByKind.fact || 0],
-        ["Methods", countsByKind.method || 0],
-        ["Warnings", qualitySignals.filter(item => item.level === "warn").length]
-      ].map(([label, value]) => '<span class="tag">' + label + ': ' + value + '</span>').join("");
-    }
-    function renderMetrics() {
-      const metrics = [
-        ["Nodes", graph.nodes.length],
-        ["Edges", graph.edges.length],
-        ["Fact types", countsByKind.fact || 0],
-        ["Fields", countsByKind.field || 0],
-        ["Outputs", countsByKind.global || 0],
-        ["Libraries", countsByKind.library || 0],
-        ["Quality signals", qualitySignals.length]
-      ];
-      document.getElementById("metrics").innerHTML = metrics
-        .map(([label, value]) => '<div class="metric"><b>' + value + '</b><span>' + label + '</span></div>')
-        .join("");
-      renderBarChart(document.getElementById("kindChart"), countsByKind, "Node profile");
-      renderBarChart(document.getElementById("edgeChart"), countsByEdge, "Relationship profile");
-    }
-    function renderBarChart(svg, counts, title) {
-      const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 12);
-      const width = svg.clientWidth || 720;
-      const height = svg.clientHeight || 210;
-      const max = Math.max(1, ...entries.map(item => item[1]));
-      const barHeight = Math.max(12, Math.floor((height - 44) / Math.max(1, entries.length)) - 4);
-      const rows = entries.map(([label, count], index) => {
-        const y = 34 + index * (barHeight + 4);
-        const w = Math.max(2, Math.round((width - 180) * count / max));
-        return '<text x="12" y="' + (y + barHeight - 2) + '" font-size="11" fill="currentColor">' + xmlEscape(label) + '</text>' +
-          '<rect x="130" y="' + y + '" width="' + w + '" height="' + barHeight + '" rx="3" fill="#3b82f6"/>' +
-          '<text x="' + (138 + w) + '" y="' + (y + barHeight - 2) + '" font-size="11" fill="currentColor">' + count + '</text>';
-      }).join("");
-      svg.setAttribute("viewBox", "0 0 " + width + " " + height);
-      svg.innerHTML = '<text x="12" y="20" font-size="12" font-weight="600" fill="currentColor">' + xmlEscape(title) + '</text>' + rows;
-    }
-    function renderQuality() {
-      document.getElementById("quality").innerHTML = qualitySignals.map(item => {
-        const cls = item.level === "ok" ? "notice ok" : "notice";
-        return '<div class="' + cls + '"><b>' + xmlEscape(item.title) + '</b>' +
-          '<div>' + xmlEscape(item.body) + '</div>' +
-          '<span class="tag">count: ' + item.count + '</span></div>';
-      }).join("");
-    }
-    function nodeSignals(node) {
-      const signals = [];
-      const d = degree.get(node.id) || { in: 0, out: 0 };
-      if (d.in + d.out === 0) signals.push("isolated");
-      if (d.out >= 8) signals.push("hub");
-      if (!node.detail && (node.kind === "fact" || node.kind === "global")) signals.push("sparse");
-      if (duplicateLabels.some(group => group.some(item => item.id === node.id))) signals.push("duplicate label");
-      return signals;
-    }
-    function renderTables() {
-      const rows = graph.nodes
-        .filter(node => visibleKinds.has(node.kind) && nodeMatches(node))
-        .sort((a, b) => a.kind.localeCompare(b.kind) || a.label.localeCompare(b.label))
-        .map(node => {
-          const d = degree.get(node.id) || { in: 0, out: 0 };
-          const signals = nodeSignals(node);
-          return '<tr data-node="' + xmlEscape(node.id) + '"><td>' + xmlEscape(node.kind) + '</td><td>' + xmlEscape(node.label) + '</td><td>' + (d.in + d.out) + ' <span class="tag">in ' + d.in + '</span><span class="tag">out ' + d.out + '</span></td><td>' + (signals.length ? signals.map(s => '<span class="tag">' + xmlEscape(s) + '</span>').join("") : '<span class="tag">ok</span>') + '</td><td>' + xmlEscape(node.detail || "") + '</td></tr>';
-        }).join("");
-      document.getElementById("nodeRows").innerHTML = rows || '<tr><td colspan="5">No nodes match the active filters.</td></tr>';
-      document.querySelectorAll("tr[data-node]").forEach(row => {
-        row.addEventListener("click", () => selectNode(row.dataset.node));
-      });
-    }
-    function selectNode(id) {
-      const node = nodeById.get(id);
-      if (!node) return;
-      cy.elements().unselect();
-      const cyNode = cy.getElementById(id);
-      cyNode.select();
-      cyNode.connectedEdges().select();
-      const d = degree.get(id) || { in: 0, out: 0 };
-      const incoming = graph.edges.filter(edge => edge.to === id).map(edge => nodeById.get(edge.from)?.label + " -" + edge.label + "-> " + node.label);
-      const outgoing = graph.edges.filter(edge => edge.from === id).map(edge => node.label + " -" + edge.label + "-> " + nodeById.get(edge.to)?.label);
-      document.getElementById("selection").innerHTML =
-        '<div><b>' + xmlEscape(node.label) + '</b> <span class="tag">' + xmlEscape(node.kind) + '</span></div>' +
-        '<div><span class="tag">degree ' + (d.in + d.out) + '</span><span class="tag">in ' + d.in + '</span><span class="tag">out ' + d.out + '</span></div>' +
-        (node.detail ? '<div>' + xmlEscape(node.detail) + '</div>' : '') +
-        '<div>' + nodeSignals(node).map(signal => '<span class="tag">' + xmlEscape(signal) + '</span>').join("") + '</div>' +
-        '<div><b>Incoming</b><br>' + (incoming.length ? incoming.map(xmlEscape).join("<br>") : "none") + '</div>' +
-        '<div><b>Outgoing</b><br>' + (outgoing.length ? outgoing.map(xmlEscape).join("<br>") : "none") + '</div>';
-    }
-    function xmlEscape(value) {
-      return String(value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-    }
-    function svgColor(kind, key) {
-      return (colors[kind] || colors.value)[key];
-    }
-    function nodeShape(node, x, y, width, height) {
-      const kind = node.data("kind");
-      const fill = svgColor(kind, "bg");
-      const stroke = svgColor(kind, "border");
-      if (kind === "field") {
-        return '<ellipse cx="' + (x + width / 2) + '" cy="' + (y + height / 2) + '" rx="' + (width / 2) + '" ry="' + (height / 2) + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.4"/>';
-      }
-      if (kind === "global") {
-        const points = [
-          [x + width * 0.22, y], [x + width * 0.78, y], [x + width, y + height / 2],
-          [x + width * 0.78, y + height], [x + width * 0.22, y + height], [x, y + height / 2]
-        ].map(point => point.join(",")).join(" ");
-        return '<polygon points="' + points + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.4"/>';
-      }
-      return '<rect x="' + x + '" y="' + y + '" width="' + width + '" height="' + height + '" rx="8" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.4"/>';
-    }
-    function downloadVisibleSvg() {
-      const visible = cy.elements(":visible");
-      const visibleNodes = cy.nodes(":visible");
-      const visibleEdges = cy.edges(":visible");
-      if (visibleNodes.length === 0) return;
-      const bounds = visible.boundingBox({ includeLabels: true });
-      const margin = 36;
-      const width = Math.max(320, Math.ceil(bounds.w + margin * 2));
-      const height = Math.max(240, Math.ceil(bounds.h + margin * 2));
-      const ox = margin - bounds.x1;
-      const oy = margin - bounds.y1;
-      const parts = [
-        '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">',
-        '<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/></marker></defs>',
-        '<rect width="100%" height="100%" fill="#ffffff"/>'
-      ];
-      visibleEdges.forEach(edge => {
-        const source = edge.source().position();
-        const target = edge.target().position();
-        const x1 = source.x + ox;
-        const y1 = source.y + oy;
-        const x2 = target.x + ox;
-        const y2 = target.y + oy;
-        const mx = (x1 + x2) / 2;
-        const my = (y1 + y2) / 2;
-        parts.push('<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="#94a3b8" stroke-width="1.3" marker-end="url(#arrow)"/>');
-        parts.push('<text x="' + mx + '" y="' + (my - 4) + '" text-anchor="middle" font-size="9" font-family="Arial, sans-serif" fill="#64748b">' + xmlEscape(edge.data("label")) + '</text>');
-      });
-      visibleNodes.forEach(node => {
-        const box = node.boundingBox({ includeLabels: true });
-        const x = box.x1 + ox - 4;
-        const y = box.y1 + oy - 4;
-        const width = box.w + 8;
-        const height = box.h + 8;
-        const textX = x + width / 2;
-        const textY = y + height / 2 + 4;
-        parts.push(nodeShape(node, x, y, width, height));
-        parts.push('<text x="' + textX + '" y="' + textY + '" text-anchor="middle" font-size="12" font-family="Arial, sans-serif" fill="' + svgColor(node.data("kind"), "text") + '">' + xmlEscape(node.data("label")) + '</text>');
-      });
-      parts.push("</svg>");
-      const blob = new Blob([parts.join("")], { type: "image/svg+xml" });
-      downloadBlob(blob, "felidae-visualization.svg");
-    }
-    function downloadBlob(blob, fileName) {
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    }
-    function downloadHtml() {
-      const html = "<!doctype html>\\n" + document.documentElement.outerHTML;
-      downloadBlob(new Blob([html], { type: "text/html" }), "felidae-visualization.html");
-    }
-    document.querySelectorAll(".tab").forEach(tab => {
-      tab.addEventListener("click", () => {
-        document.querySelectorAll(".tab").forEach(item => item.classList.remove("active"));
-        document.querySelectorAll(".view").forEach(item => item.classList.remove("active"));
-        tab.classList.add("active");
-        document.getElementById(tab.dataset.view).classList.add("active");
-        cy.resize();
-        cy.fit(cy.elements(":visible"), 42);
-      });
-    });
-    document.getElementById("fit").addEventListener("click", () => cy.fit(undefined, 42));
-    document.getElementById("data").addEventListener("click", () => runLayout("cose"));
-    document.getElementById("flow").addEventListener("click", () => runLayout("breadthfirst"));
-    document.getElementById("circle").addEventListener("click", () => runLayout("circle"));
-    document.getElementById("downloadSvg").addEventListener("click", downloadVisibleSvg);
-    document.getElementById("downloadHtml").addEventListener("click", downloadHtml);
-    document.getElementById("search").addEventListener("input", event => {
-      state.query = event.target.value.trim();
-      applyFilters();
-      cy.fit(cy.elements(":visible"), 42);
-    });
-    document.querySelectorAll("input[data-kind]").forEach(input => {
-      input.addEventListener("change", event => {
-        const box = event.target;
-        if (box.checked) visibleKinds.add(box.dataset.kind);
-        else visibleKinds.delete(box.dataset.kind);
-        applyFilters();
-        cy.fit(cy.elements(":visible"), 42);
-      });
-    });
-    cy.on("tap", "node", event => {
-      const node = event.target;
-      selectNode(node.id());
-    });
-    cy.on("tap", event => {
-      if (event.target === cy) cy.elements().unselect();
-    });
-    window.addEventListener("resize", () => {
-      renderMetrics();
-      cy.resize();
-    });
-    renderSummary();
-    renderMetrics();
-    renderQuality();
-    renderTables();
-    applyFilters();
-    cy.fit(cy.elements(":visible"), 42);
-  </script>
-</body>
-</html>`;
-}
-function escapeScriptJson(value) {
-    return value
-        .replace(/\\/g, "\\\\")
-        .replace(/"/g, "\\\"")
-        .replace(/</g, "\\u003c")
-        .replace(/>/g, "\\u003e")
-        .replace(/&/g, "\\u0026");
-}
-// Felidae's binaries are `felidae.exe` on Windows and plain `felidae`
-// everywhere else. The defaults below (and any path a user carried over from
-// another machine) can therefore name a file that does not exist on this
-// platform, which previously meant every executable lookup silently failed on
-// Linux and macOS. Try the path as given, then the other platform's spelling,
-// before giving up - the caller still reports "not found" if neither exists.
+// Add the Windows executable suffix only on Windows; never select a foreign
+// platform binary merely because its filename happens to exist.
 function withPlatformExecutableSuffix(resolved) {
-    if (fs.existsSync(resolved))
-        return resolved;
-    const alternate = resolved.toLowerCase().endsWith(".exe")
-        ? resolved.slice(0, -4)
-        : `${resolved}.exe`;
-    return fs.existsSync(alternate) ? alternate : resolved;
+    if (process.platform === "win32" && !path.extname(resolved) && !isExecutableFile(resolved))
+        return `${resolved}.exe`;
+    return resolved;
+}
+function isExecutableFile(candidate) {
+    try {
+        if (!fs.statSync(candidate).isFile())
+            return false;
+        fs.accessSync(candidate, process.platform === "win32" ? fs.constants.F_OK : fs.constants.X_OK);
+        return true;
+    }
+    catch {
+        return false;
+    }
 }
 // "felidae" is the one interpreter binary this project builds - it reads
 // source.fx, parses it to an AST, and executes that AST directly; there is
 // no separate compiler or VM binary to run first (see README.md/code.md).
 function resolveInterpreterPath(documentUri) {
-    const config = vscode.workspace.getConfiguration("felidae");
+    const config = vscode.workspace.getConfiguration("felidae", documentUri);
     return resolveReleaseExecutable(documentUri, workspaceExecutableSetting(documentUri, "interpreterPath") ??
-        config.get("interpreterPath", ""), "felidae");
+        (config.get("interpreterPath", "") || process.env.FELIDAE_PATH), "felidae");
 }
 function workspaceExecutableSetting(documentUri, setting) {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(documentUri);
@@ -2610,26 +1701,23 @@ function releaseExecutableCandidates(name) {
 }
 function resolveReleaseExecutable(documentUri, configuredPath, name) {
     if (configuredPath?.trim()) {
-        return withPlatformExecutableSuffix(resolveConfiguredPath(documentUri, configuredPath));
+        const configured = configuredPath.trim();
+        const local = withPlatformExecutableSuffix(resolveConfiguredPath(documentUri, configured));
+        if (isExecutableFile(local) || /[/\\]/.test(configured))
+            return local;
+        const executable = withPlatformExecutableSuffix(configured);
+        return (process.env.PATH || "").split(path.delimiter).filter(Boolean)
+            .map(directory => path.resolve(directory, executable)).find(isExecutableFile) || local;
     }
     const candidates = releaseExecutableCandidates(name)
         .map((candidate) => resolveConfiguredPath(documentUri, candidate));
-    return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
+    const executable = `${name}${process.platform === "win32" ? ".exe" : ""}`;
+    candidates.push(...(process.env.PATH || "").split(path.delimiter).filter(Boolean)
+        .map(directory => path.resolve(directory, executable)));
+    return candidates.find(isExecutableFile) ?? candidates[0];
 }
-function resolveDebugInterpreterPath(documentUri) {
-    const debuggerFromEnv = process.env.FELIDAE_DEBUG_PATH;
-    if (debuggerFromEnv && fs.existsSync(debuggerFromEnv))
-        return debuggerFromEnv;
-    const config = vscode.workspace.getConfiguration("felidae");
-    return resolveReleaseExecutable(documentUri, workspaceExecutableSetting(documentUri, "debugInterpreterPath") ??
-        config.get("debugInterpreterPath", ""), "felidae_debug");
-}
-function resolveCelidaePath(documentUri) {
-    const celidaeFromEnv = process.env.CELIDAE_PATH;
-    if (celidaeFromEnv && fs.existsSync(celidaeFromEnv))
-        return celidaeFromEnv;
-    const config = vscode.workspace.getConfiguration("felidae");
-    return withPlatformExecutableSuffix(resolveConfiguredPath(documentUri, config.get("celidaePath", `build/celidae${process.platform === "win32" ? ".exe" : ""}`)));
+function resolveToolingPath(documentUri) {
+    return resolveInterpreterPath(documentUri);
 }
 function resolveConfiguredPath(documentUri, configuredPath) {
     if (path.isAbsolute(configuredPath)) {
@@ -2642,10 +1730,10 @@ function resolveConfiguredPath(documentUri, configuredPath) {
     return configuredPath;
 }
 async function ensureInterpreterInstalled(interpreterPath, label, settingsQuery = "felidae.interpreterPath") {
-    if (fs.existsSync(interpreterPath))
+    if (isExecutableFile(interpreterPath))
         return true;
-    const downloadLabel = settingsQuery === "felidae.celidaePath" ? "Download Celidae" : "Download Felidae";
-    const choice = await vscode.window.showWarningMessage(`You have not installed the ${label}, or the configured path was not found: ${interpreterPath}`, downloadLabel, "Open Settings");
+    const downloadLabel = "Download Felidae";
+    const choice = await vscode.window.showWarningMessage(`${label} is missing or is not executable: ${interpreterPath}`, downloadLabel, "Open Settings");
     if (choice === downloadLabel) {
         await vscode.env.openExternal(vscode.Uri.parse("https://github.com/xnvtserver/Felidae/releases"));
     }
@@ -2654,17 +1742,17 @@ async function ensureInterpreterInstalled(interpreterPath, label, settingsQuery 
     }
     return false;
 }
-// Best-effort cache of `felidae_debug <file> --symbols-json --load-imports`
+// Best-effort cache of `felidae <file> --symbols-json --load-imports`
 // results, keyed by document URI. Populated in the background on the same
 // debounce cycle as diagnostics; completion reads it synchronously and falls
 // back to text-scanning when no entry exists yet (e.g. right after opening a
-// file, or against a felidae_debug build too old to support the flag).
+// file, or against a felidae build too old to support the flag).
 const symbolSummaryCache = new Map();
 function refreshSymbolCache(document) {
     if (document.uri.scheme !== "file" || document.languageId !== "felidae")
         return;
-    const interpreterPath = resolveDebugInterpreterPath(document.uri);
-    if (!fs.existsSync(interpreterPath))
+    const interpreterPath = resolveToolingPath(document.uri);
+    if (!isExecutableFile(interpreterPath))
         return;
     childProcess.execFile(interpreterPath, [document.uri.fsPath, "--symbols-json", "--load-imports"], { cwd: path.dirname(document.uri.fsPath), windowsHide: true, timeout: 10000 }, (error, stdout) => {
         if (error)
@@ -2676,7 +1764,7 @@ function refreshSymbolCache(document) {
             }
         }
         catch {
-            // Older felidae_debug builds without --symbols-json, or a transient
+            // Older felidae builds without --symbols-json, or a transient
             // parse failure mid-edit. Completion silently keeps using text scans.
         }
     });
@@ -2687,10 +1775,10 @@ function runtimeCheckDiagnostics(document) {
             resolve([]);
             return;
         }
-        const interpreterPath = resolveDebugInterpreterPath(document.uri);
-        if (!fs.existsSync(interpreterPath)) {
+        const interpreterPath = resolveToolingPath(document.uri);
+        if (!isExecutableFile(interpreterPath)) {
             const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 1));
-            resolve([new vscode.Diagnostic(range, `Felidae AST debugger not found: ${interpreterPath}. Parser and AST validation via --check-json is disabled.`, vscode.DiagnosticSeverity.Warning)]);
+            resolve([new vscode.Diagnostic(range, `Felidae interpreter not found: ${interpreterPath}. Parser and AST validation via --check-json is disabled.`, vscode.DiagnosticSeverity.Warning)]);
             return;
         }
         childProcess.execFile(interpreterPath, [document.uri.fsPath, "--check-json"], { cwd: path.dirname(document.uri.fsPath), windowsHide: true, timeout: 15000 }, (error, stdout, stderr) => {
@@ -2781,10 +1869,10 @@ function formatRuntimeCheckMessage(text) {
         message = `Fact type '${name}' is not implicitly iterable here. Direct ${name}(...) declarations and named queries are supported, but ${name}(item) in a method body does not scan facts. Use lambda(${name}, item => ...) or iterate an explicit list/array.`;
     }
     else if (/^Module '.*' not found/.test(message)) {
-        message = `${message}. Check the import path, native module name, or workspace-relative Celidae configuration.`;
+        message = `${message}. Check the import path, native module name, or workspace-relative Felidae configuration.`;
     }
     else if (/expects argument/.test(message)) {
-        message = `${message}. This was reported by felidae_debug --check-json during parser and AST validation.`;
+        message = `${message}. This was reported by felidae --check-json during parser and AST validation.`;
     }
     else if (/Unknown field/.test(message)) {
         message = `${message}. Named fact calls must match the declared fact fields.`;
@@ -2861,12 +1949,8 @@ async function runQuery(uri) {
     const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
     if (!installed)
         return;
-    const command = felidaeTerminalCommand([
-        { executablePath: interpreterPath, args: [programPath, query] }
-    ]);
-    const terminal = vscode.window.createTerminal({ name: "Felidae", cwd: path.dirname(programPath) });
-    terminal.show();
-    terminal.sendText(command);
+    const normalizedQuery = query.trim().startsWith("?") ? query.trim() : `? ${query.trim()}`;
+    runInTerminal(interpreterPath, [programPath, normalizedQuery], path.dirname(programPath));
 }
 // A `main` *declaration*, which like every Felidae declaration sits at column
 // 0 and is followed by `=>`. Anchoring matters: `^\s*` also matched an
@@ -2894,12 +1978,7 @@ async function runMain(uri) {
     const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
     if (!installed)
         return;
-    const command = felidaeTerminalCommand([
-        { executablePath: interpreterPath, args: [programPath] }
-    ]);
-    const terminal = vscode.window.createTerminal({ name: "Felidae", cwd: path.dirname(programPath) });
-    terminal.show();
-    terminal.sendText(command);
+    runInTerminal(interpreterPath, [programPath], path.dirname(programPath));
 }
 async function debugMain(uri) {
     const document = await getFelidaeDocument(uri);
@@ -2915,9 +1994,8 @@ async function debugMain(uri) {
         await document.save();
     }
     // The real debug session (Interpreter::setGoalHook, driven via `felidae
-    // program.fx --debug`) runs in the interpreter itself. `felidae_debug` is
-    // an advisory analyzer used by the diagnostics provider; it must not gate
-    // execution because it has no way to execute a program.
+    // program.fx --debug`) runs in the interpreter itself, which also owns the
+    // diagnostics and language-server tooling modes.
     const interpreterPath = resolveInterpreterPath(document.uri);
     const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
     if (!installed)
@@ -2945,6 +2023,7 @@ class FelidaeDebugAdapter {
         this.stdoutBuffer = "";
         this.breakpoints = new Set();
         this.locals = [];
+        this.configurationDone = new Promise((resolve) => { this.finishConfiguration = resolve; });
         this.onDidSendMessage = this.emitter.event;
     }
     handleMessage(message) {
@@ -2964,6 +2043,7 @@ class FelidaeDebugAdapter {
             return;
         }
         if (request.command === "configurationDone") {
+            this.finishConfiguration();
             this.sendResponse(request);
             return;
         }
@@ -3062,7 +2142,6 @@ class FelidaeDebugAdapter {
         this.currentProgram = program;
         this.currentLine = 1;
         this.stdoutBuffer = "";
-        this.breakpoints = new Set();
         this.sendOutput(`Felidae debugger launch\n${interpreterPath} ${launchArgs.join(" ")}\n`, "console");
         this.process = childProcess.spawn(interpreterPath, launchArgs, {
             cwd: path.dirname(program),
@@ -3072,6 +2151,8 @@ class FelidaeDebugAdapter {
         this.process.stderr.on("data", (data) => this.sendOutput(data.toString(), "stderr"));
         this.process.on("error", (error) => {
             this.sendOutput(`${error.message}\n`, "stderr");
+            this.process = undefined;
+            this.finishConfiguration();
             this.resolvePendingStop();
             this.sendEvent("terminated");
         });
@@ -3079,6 +2160,7 @@ class FelidaeDebugAdapter {
             this.flushDebugStdout();
             this.sendOutput(`Felidae process exited with code ${code ?? "unknown"}.\n`, "console");
             this.process = undefined;
+            this.finishConfiguration();
             this.resolvePendingStop();
             this.sendEvent("terminated");
         });
@@ -3086,9 +2168,25 @@ class FelidaeDebugAdapter {
         // wait for that first real stop before replying, so the very first
         // "stopped" event corresponds to a line the child actually reported.
         await this.waitForStop();
+        await this.configurationDone;
+        if (!this.process) {
+            this.sendResponse(request, undefined, false, "Interpreter exited before debugger startup completed. See Debug Console.");
+            return;
+        }
+        for (const line of this.breakpoints)
+            this.process.stdin.write(`break ${line}\n`);
         this.sendResponse(request);
-        if (this.process)
+        if (args.stopOnEntry === false) {
+            const stopped = this.waitForStop();
+            this.process.stdin.write("continue\n");
+            this.sendEvent("continued", { threadId: 1, allThreadsContinued: true });
+            await stopped;
+            if (this.process)
+                this.sendEvent("stopped", { reason: "breakpoint", threadId: 1, allThreadsStopped: true });
+        }
+        else {
             this.sendEvent("stopped", { reason: "entry", threadId: 1, allThreadsStopped: true });
+        }
     }
     waitForStop() {
         return new Promise((resolve) => { this.pendingStop = resolve; });
@@ -3148,22 +2246,19 @@ class FelidaeDebugAdapter {
     }
     async evaluate(request) {
         const args = (request.arguments ?? {});
-        // The real protocol's `print` only resolves one bound name, not an
-        // arbitrary expression; a hover/watch on a compound expression will not
-        // evaluate; take the first token as a best-effort name lookup.
-        const expression = (args.expression ?? "").trim().split(/\s+/)[0];
+        // The native protocol exposes bound names, not arbitrary expressions.
+        const expression = (args.expression ?? "").trim();
         if (!expression) {
             this.sendResponse(request, { result: "", variablesReference: 0 });
             return;
         }
-        if (!this.process) {
-            this.sendResponse(request, undefined, false, "No active Felidae debug session.");
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(expression)) {
+            this.sendResponse(request, undefined, false, "Enter a variable name. Use Run Query for fact queries.");
             return;
         }
-        const value = await new Promise((resolve) => {
-            this.pendingPrint = { name: expression, resolve };
-            this.process?.stdin.write(`print ${expression}\n`);
-        });
+        // Locals are refreshed before each stopped event. Reading that snapshot
+        // also supports simultaneous hover/watch requests without stdin races.
+        const value = this.locals.find((local) => local.name === expression)?.value;
         this.sendResponse(request, { result: value ?? "<unbound>", variablesReference: 0 });
     }
     refreshLocals() {
@@ -3221,10 +2316,6 @@ class FelidaeDebugAdapter {
         }
         const value = /^FELIDAE_DEBUG_VALUE (\S+) = (.*)$/.exec(line);
         if (value) {
-            if (this.pendingPrint && this.pendingPrint.name === value[1]) {
-                this.pendingPrint.resolve(value[2]);
-                this.pendingPrint = undefined;
-            }
             return;
         }
         this.sendOutput(`${line}\n`, "stdout");
@@ -3262,8 +2353,13 @@ class FelidaeDebugConfigurationProvider {
         config.name ?? (config.name = "Debug Felidae Query");
         config.request ?? (config.request = "launch");
         config.program ?? (config.program = activeDocument?.uri.fsPath ?? "${file}");
-        const anchor = activeDocument?.uri ?? vscode.Uri.file(workspacePath ?? "");
-        config.interpreterPath ?? (config.interpreterPath = resolveInterpreterPath(anchor));
+        const anchor = typeof config.program === "string" && path.isAbsolute(config.program)
+            ? vscode.Uri.file(config.program)
+            : folder?.uri ?? activeDocument?.uri ?? vscode.Uri.file(workspacePath ?? "");
+        if (!config.interpreterPath?.trim())
+            config.interpreterPath = resolveInterpreterPath(anchor);
+        else if (!config.interpreterPath.includes("${"))
+            config.interpreterPath = resolveReleaseExecutable(anchor, config.interpreterPath, "felidae");
         config.stopOnEntry ?? (config.stopOnEntry = true);
         return config;
     }
@@ -3273,7 +2369,7 @@ function activate(context) {
     // report themselves disabled and completion behaves exactly as before.
     ml.loadModels(context.extensionPath);
     const diagnostics = vscode.languages.createDiagnosticCollection("felidae");
-    // Start felidae_debug --lsp if it is available. Everything below keeps
+    // Start felidae --lsp if it is available. Everything below keeps
     // working when it is not; the client only takes over diagnostics, document
     // symbols and go-to-definition, which it computes from the real parse.
     const serverOutput = vscode.window.createOutputChannel("Felidae Language Server");
@@ -3283,7 +2379,7 @@ function activate(context) {
     const serverAnchor = vscode.window.activeTextEditor?.document.uri ??
         vscode.workspace.workspaceFolders?.[0]?.uri ??
         vscode.Uri.file(process.cwd());
-    const serverPath = resolveDebugInterpreterPath(serverAnchor);
+    const serverPath = resolveToolingPath(serverAnchor);
     void languageClient.start(serverPath, serverOutput).then((started) => {
         if (!started)
             return;
@@ -3297,7 +2393,7 @@ function activate(context) {
         if (document.languageId !== "felidae")
             return;
         // When the language server is running it publishes diagnostics itself,
-        // over one long-lived connection. Spawning felidae_debug again per edit
+        // over one long-lived connection. Spawning felidae again per edit
         // would duplicate every message and undo the reason for having a server.
         if (!languageClient.isRunning()) {
             const version = document.version;
@@ -3309,7 +2405,7 @@ function activate(context) {
             });
         }
         // The symbol cache backs signature help with real parameter types. It is
-        // another felidae_debug spawn, so with the server running it refreshes on
+        // another felidae spawn, so with the server running it refreshes on
         // open/save rather than on every edit - otherwise the per-keystroke
         // process cost the server was meant to remove just moves here. Signatures
         // change rarely, and resolveCall falls back to a text scan meanwhile.
@@ -3338,7 +2434,7 @@ function activate(context) {
         refreshDiagnostics(document);
     }
     refreshMainContext();
-    context.subscriptions.push(diagnostics, vscode.commands.registerCommand("felidae.runMain", runMain), vscode.commands.registerCommand("felidae.debugMain", debugMain), vscode.commands.registerCommand("felidae.runQuery", runQuery), vscode.commands.registerCommand("felidae.visualize", (uri) => visualizeFelidae(context, uri)), vscode.commands.registerCommand("felidae.formatDocument", () => vscode.commands.executeCommand("editor.action.formatDocument")), vscode.workspace.onDidOpenTextDocument((document) => {
+    context.subscriptions.push(diagnostics, vscode.commands.registerCommand("felidae.runMain", runMain), vscode.commands.registerCommand("felidae.debugMain", debugMain), vscode.commands.registerCommand("felidae.runQuery", runQuery), vscode.commands.registerCommand("felidae.formatDocument", () => vscode.commands.executeCommand("editor.action.formatDocument")), vscode.workspace.onDidOpenTextDocument((document) => {
         refreshDiagnostics(document);
         refreshMainContext();
     }), vscode.workspace.onDidChangeTextDocument((event) => {
@@ -3364,7 +2460,7 @@ function activate(context) {
 }
 function deactivate() {
     // Returned so VS Code waits for the server process to exit instead of
-    // leaving an orphaned felidae_debug behind on reload.
+    // leaving an orphaned felidae process behind on reload.
     return languageClient.stop();
 }
 //# sourceMappingURL=extension.js.map

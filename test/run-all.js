@@ -34,10 +34,23 @@ function corpusFiles() {
   return files;
 }
 
+// The folding smoke check just needs one real corpus file - any v2 source
+// of reasonable size must produce at least one fold region (see
+// folding.test.js). Picking the first one corpusFiles() finds keeps this
+// suite from rotting the way a single hardcoded filename already did once
+// (examples/advanced_mortality_fact_reasoning.fx, from before the corpus
+// moved to v2_examples/ - the file didn't move with it, it was retired
+// outright, and nothing here noticed until this test failed).
+const foldingCorpusFile = corpusFiles()[0];
+
 const suites = [
+  { name: "runtime launch and debugger", args: [path.join(HERE, "runtime.test.js")] },
   { name: "providers (rename/references/highlight)", args: [path.join(HERE, "providers.test.js")] },
   { name: "signature help + completion", args: [path.join(HERE, "signature.test.js")] },
-  { name: "folding", args: [path.join(HERE, "folding.test.js"), path.join(REPO_ROOT, "examples", "advanced_mortality_fact_reasoning.fx")] },
+  {
+    name: "folding",
+    args: [path.join(HERE, "folding.test.js"), ...(foldingCorpusFile ? [foldingCorpusFile] : [])]
+  },
   {
     name: "formatter corpus (idempotency)",
     args: [path.join(HERE, "formatter.test.js"), path.join(HERE, "..", "out", "formatter.js"), ...corpusFiles()]

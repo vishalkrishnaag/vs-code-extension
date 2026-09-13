@@ -96,7 +96,7 @@ check("suppliedKeys", [...state.suppliedKeys], ["left"]);
 const items = T.completionsForCallFields(d3, call.name, state.suppliedKeys);
 check("left no longer suggested", items.map(i => i.label), ["right", "result"]);
 
-console.log("\nuser-defined method via regex fallback (no felidae_debug cache):");
+console.log("\nuser-defined method via regex fallback (no felidae symbol cache):");
 const d4 = doc('Greeting(name: string, times: number) =>\n    return\n\nmain() =>\n    Greeting(');
 const h4 = sig.provideSignatureHelp(d4, new vscode.Position(4, 13));
 check("user signature", h4 && h4.signatures[0].label, "Greeting(name: string, times: number)");

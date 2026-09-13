@@ -110,28 +110,33 @@ function builtinSourceName(name: string): string {
   return legacyColonBuiltins.has(name) ? name : name.replace(/:/g, ".");
 }
 
-function quotePowerShell(value: string): string {
-  return `'${String(value).replace(/'/g, "''")}'`;
-}
-
 function quotePosixShell(value: string): string {
   return `'${String(value).replace(/'/g, `'"'"'`)}'`;
 }
 
-function nativeTerminalInvocation(executablePath: string, args: string[]): string {
-  const quote = process.platform === "win32" ? quotePowerShell : quotePosixShell;
-  const prefix = process.platform === "win32" ? "& " : "";
-  return `${prefix}${quote(executablePath)} ${args.map(quote).join(" ")}`.trim();
-}
-
-function felidaeTerminalCommand(commands: Array<{ executablePath: string; args: string[] }>): string {
-  const invocations = commands.map(({ executablePath, args }) => nativeTerminalInvocation(executablePath, args));
+function runInTerminal(executablePath: string, args: string[], cwd: string): void {
+  let command: string;
+  const env: Record<string, string> = {};
   if (process.platform === "win32") {
-    return invocations.map((command, index) => index === 0
-      ? command
-      : `if ($LASTEXITCODE -eq 0) { ${command} }`).join("; ");
+    // Delayed expansion happens after CMD metacharacter parsing. Keep user
+    // values out of command text; encode arguments for the native CRT parser.
+    env.FELIDAE_RUN_EXE = executablePath;
+    const argumentsText = args.map((arg, index) => {
+      env[`FELIDAE_RUN_ARG_${index}`] = arg
+        .replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1');
+      return `"!FELIDAE_RUN_ARG_${index}!"`;
+    });
+    command = ['"!FELIDAE_RUN_EXE!"', ...argumentsText].join(" ");
+  } else {
+    command = [executablePath, ...args].map(quotePosixShell).join(" ");
   }
-  return invocations.join(" && ");
+  const terminal = vscode.window.createTerminal({
+    name: "Felidae", cwd, env,
+    shellPath: process.platform === "win32" ? (process.env.ComSpec || "cmd.exe") : "/bin/sh",
+    shellArgs: process.platform === "win32" ? ["/d", "/v:on"] : []
+  });
+  terminal.show();
+  terminal.sendText(command);
 }
 
 function documentRange(document: vscode.TextDocument, line: number, start: number, end: number): vscode.Range {
@@ -1056,7 +1061,7 @@ class FelidaeCodeLensProvider implements vscode.CodeLensProvider {
       const text = document.lineAt(line).text;
       // Same column-0 anchoring as hasMainMethod: an indented `main(...)`
       // call is a call, not the entry point.
-      if (!/^main[ \t]*\([^)]*\)[ \t]*=>(?:[ \t]*(?:\(\))?)?(?:[ \t]*#.*)?$/.test(text)) continue;
+      if (!MAIN_DECLARATION_PATTERN.test(text)) continue;
       const range = new vscode.Range(line, text.indexOf("main"), line, text.indexOf("main") + 4);
       lenses.push(new vscode.CodeLens(range, {
         title: "$(play) Run",
@@ -1342,9 +1347,9 @@ interface ResolvedCall {
 //
 // Resolution order, most to least authoritative:
 //   1. builtinDocs - params derived at build time from the documented example.
-//   2. symbolSummaryCache - real parameters parsed by felidae_debug from the
+//   2. symbolSummaryCache - real parameters parsed by felidae from the
 //      AST, including types, for user-defined methods and facts.
-//   3. DECLARATION_PATTERN text scan - the fallback when felidae_debug is
+//   3. DECLARATION_PATTERN text scan - the fallback when felidae is
 //      missing, older than --symbols-json, or has not answered yet.
 function resolveCall(document: vscode.TextDocument, callName: string): ResolvedCall | undefined {
   const normalized = callName.replace(/\./g, ":");
@@ -1841,29 +1846,31 @@ class FelidaeWorkspaceSymbolProvider implements vscode.WorkspaceSymbolProvider {
   }
 }
 
-// Felidae's binaries are `felidae.exe` on Windows and plain `felidae`
-// everywhere else. The defaults below (and any path a user carried over from
-// another machine) can therefore name a file that does not exist on this
-// platform, which previously meant every executable lookup silently failed on
-// Linux and macOS. Try the path as given, then the other platform's spelling,
-// before giving up - the caller still reports "not found" if neither exists.
+// Add the Windows executable suffix only on Windows; never select a foreign
+// platform binary merely because its filename happens to exist.
 function withPlatformExecutableSuffix(resolved: string): string {
-  if (fs.existsSync(resolved)) return resolved;
-  const alternate = resolved.toLowerCase().endsWith(".exe")
-    ? resolved.slice(0, -4)
-    : `${resolved}.exe`;
-  return fs.existsSync(alternate) ? alternate : resolved;
+  if (process.platform === "win32" && !path.extname(resolved) && !isExecutableFile(resolved))
+    return `${resolved}.exe`;
+  return resolved;
+}
+
+function isExecutableFile(candidate: string): boolean {
+  try {
+    if (!fs.statSync(candidate).isFile()) return false;
+    fs.accessSync(candidate, process.platform === "win32" ? fs.constants.F_OK : fs.constants.X_OK);
+    return true;
+  } catch { return false; }
 }
 
 // "felidae" is the one interpreter binary this project builds - it reads
 // source.fx, parses it to an AST, and executes that AST directly; there is
 // no separate compiler or VM binary to run first (see README.md/code.md).
 function resolveInterpreterPath(documentUri: vscode.Uri): string {
-  const config = vscode.workspace.getConfiguration("felidae");
+  const config = vscode.workspace.getConfiguration("felidae", documentUri);
   return resolveReleaseExecutable(
     documentUri,
     workspaceExecutableSetting(documentUri, "interpreterPath") ??
-      config.get<string>("interpreterPath", ""),
+      (config.get<string>("interpreterPath", "") || process.env.FELIDAE_PATH),
     "felidae"
   );
 }
@@ -1922,11 +1929,19 @@ function releaseExecutableCandidates(name: string): string[] {
 
 function resolveReleaseExecutable(documentUri: vscode.Uri, configuredPath: string | undefined, name: string): string {
   if (configuredPath?.trim()) {
-    return withPlatformExecutableSuffix(resolveConfiguredPath(documentUri, configuredPath));
+    const configured = configuredPath.trim();
+    const local = withPlatformExecutableSuffix(resolveConfiguredPath(documentUri, configured));
+    if (isExecutableFile(local) || /[/\\]/.test(configured)) return local;
+    const executable = withPlatformExecutableSuffix(configured);
+    return (process.env.PATH || "").split(path.delimiter).filter(Boolean)
+      .map(directory => path.resolve(directory, executable)).find(isExecutableFile) || local;
   }
   const candidates = releaseExecutableCandidates(name)
     .map((candidate) => resolveConfiguredPath(documentUri, candidate));
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
+  const executable = `${name}${process.platform === "win32" ? ".exe" : ""}`;
+  candidates.push(...(process.env.PATH || "").split(path.delimiter).filter(Boolean)
+    .map(directory => path.resolve(directory, executable)));
+  return candidates.find(isExecutableFile) ?? candidates[0];
 }
 
 function resolveToolingPath(documentUri: vscode.Uri): string {
@@ -1951,10 +1966,10 @@ async function ensureInterpreterInstalled(
   label: string,
   settingsQuery: "felidae.interpreterPath" = "felidae.interpreterPath"
 ): Promise<boolean> {
-  if (fs.existsSync(interpreterPath)) return true;
+  if (isExecutableFile(interpreterPath)) return true;
   const downloadLabel = "Download Felidae";
   const choice = await vscode.window.showWarningMessage(
-    `You have not installed the ${label}, or the configured path was not found: ${interpreterPath}`,
+    `${label} is missing or is not executable: ${interpreterPath}`,
     downloadLabel,
     "Open Settings"
   );
@@ -1970,7 +1985,7 @@ interface FelidaeSymbolDefinition {
   name: string;
   count: number;
   spans: Array<{ startLine: number; startColumn: number; endLine: number; endColumn: number }>;
-  // Declared head parameters, added by felidae_debug --symbols-json. Optional
+  // Declared head parameters, added by felidae --symbols-json. Optional
   // because an older build of that binary simply omits the field.
   params?: FelidaeParam[];
 }
@@ -1983,17 +1998,17 @@ interface FelidaeSymbolSummary {
   unresolvedImports: string[];
 }
 
-// Best-effort cache of `felidae_debug <file> --symbols-json --load-imports`
+// Best-effort cache of `felidae <file> --symbols-json --load-imports`
 // results, keyed by document URI. Populated in the background on the same
 // debounce cycle as diagnostics; completion reads it synchronously and falls
 // back to text-scanning when no entry exists yet (e.g. right after opening a
-// file, or against a felidae_debug build too old to support the flag).
+// file, or against a felidae build too old to support the flag).
 const symbolSummaryCache = new Map<string, FelidaeSymbolSummary>();
 
 function refreshSymbolCache(document: vscode.TextDocument): void {
   if (document.uri.scheme !== "file" || document.languageId !== "felidae") return;
   const interpreterPath = resolveToolingPath(document.uri);
-  if (!fs.existsSync(interpreterPath)) return;
+  if (!isExecutableFile(interpreterPath)) return;
   childProcess.execFile(
     interpreterPath,
     [document.uri.fsPath, "--symbols-json", "--load-imports"],
@@ -2006,7 +2021,7 @@ function refreshSymbolCache(document: vscode.TextDocument): void {
           symbolSummaryCache.set(document.uri.toString(), parsed);
         }
       } catch {
-        // Older felidae_debug builds without --symbols-json, or a transient
+        // Older felidae builds without --symbols-json, or a transient
         // parse failure mid-edit. Completion silently keeps using text scans.
       }
     }
@@ -2020,11 +2035,11 @@ function runtimeCheckDiagnostics(document: vscode.TextDocument): Promise<vscode.
       return;
     }
     const interpreterPath = resolveToolingPath(document.uri);
-    if (!fs.existsSync(interpreterPath)) {
+    if (!isExecutableFile(interpreterPath)) {
       const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 1));
       resolve([new vscode.Diagnostic(
         range,
-        `Felidae AST debugger not found: ${interpreterPath}. Parser and AST validation via --check-json is disabled.`,
+        `Felidae interpreter not found: ${interpreterPath}. Parser and AST validation via --check-json is disabled.`,
         vscode.DiagnosticSeverity.Warning
       )]);
       return;
@@ -2248,13 +2263,8 @@ async function runQuery(uri?: vscode.Uri): Promise<void> {
   const programPath = document.uri.fsPath;
   const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
   if (!installed) return;
-  const command = felidaeTerminalCommand([
-    { executablePath: interpreterPath, args: [programPath, query] }
-  ]);
-
-  const terminal = vscode.window.createTerminal({ name: "Felidae", cwd: path.dirname(programPath) });
-  terminal.show();
-  terminal.sendText(command);
+  const normalizedQuery = query.trim().startsWith("?") ? query.trim() : `? ${query.trim()}`;
+  runInTerminal(interpreterPath, [programPath, normalizedQuery], path.dirname(programPath));
 }
 
 // A `main` *declaration*, which like every Felidae declaration sits at column
@@ -2287,13 +2297,7 @@ async function runMain(uri?: vscode.Uri): Promise<void> {
   const programPath = document.uri.fsPath;
   const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
   if (!installed) return;
-  const command = felidaeTerminalCommand([
-    { executablePath: interpreterPath, args: [programPath] }
-  ]);
-
-  const terminal = vscode.window.createTerminal({ name: "Felidae", cwd: path.dirname(programPath) });
-  terminal.show();
-  terminal.sendText(command);
+  runInTerminal(interpreterPath, [programPath], path.dirname(programPath));
 }
 
 async function debugMain(uri?: vscode.Uri): Promise<void> {
@@ -2313,9 +2317,8 @@ async function debugMain(uri?: vscode.Uri): Promise<void> {
   }
 
   // The real debug session (Interpreter::setGoalHook, driven via `felidae
-  // program.fx --debug`) runs in the interpreter itself. `felidae_debug` is
-  // an advisory analyzer used by the diagnostics provider; it must not gate
-  // execution because it has no way to execute a program.
+  // program.fx --debug`) runs in the interpreter itself, which also owns the
+  // diagnostics and language-server tooling modes.
   const interpreterPath = resolveInterpreterPath(document.uri);
   const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
   if (!installed) return;
@@ -2353,7 +2356,8 @@ class FelidaeDebugAdapter implements vscode.DebugAdapter {
   // interpreter's real, current pause rather than a guess made before the
   // child actually got there.
   private pendingStop?: () => void;
-  private pendingPrint?: { name: string, resolve: (value: string | undefined) => void };
+  private finishConfiguration!: () => void;
+  private readonly configurationDone = new Promise<void>((resolve) => { this.finishConfiguration = resolve; });
   private pendingLocals?: { resolve: () => void };
   readonly onDidSendMessage = this.emitter.event;
 
@@ -2376,6 +2380,7 @@ class FelidaeDebugAdapter implements vscode.DebugAdapter {
     }
 
     if (request.command === "configurationDone") {
+      this.finishConfiguration();
       this.sendResponse(request);
       return;
     }
@@ -2490,7 +2495,6 @@ class FelidaeDebugAdapter implements vscode.DebugAdapter {
     this.currentProgram = program;
     this.currentLine = 1;
     this.stdoutBuffer = "";
-    this.breakpoints = new Set();
     this.sendOutput(`Felidae debugger launch\n${interpreterPath} ${launchArgs.join(" ")}\n`, "console");
     this.process = childProcess.spawn(interpreterPath, launchArgs, {
       cwd: path.dirname(program),
@@ -2501,6 +2505,8 @@ class FelidaeDebugAdapter implements vscode.DebugAdapter {
     this.process.stderr.on("data", (data: Buffer) => this.sendOutput(data.toString(), "stderr"));
     this.process.on("error", (error: Error) => {
       this.sendOutput(`${error.message}\n`, "stderr");
+      this.process = undefined;
+      this.finishConfiguration();
       this.resolvePendingStop();
       this.sendEvent("terminated");
     });
@@ -2508,6 +2514,7 @@ class FelidaeDebugAdapter implements vscode.DebugAdapter {
       this.flushDebugStdout();
       this.sendOutput(`Felidae process exited with code ${code ?? "unknown"}.\n`, "console");
       this.process = undefined;
+      this.finishConfiguration();
       this.resolvePendingStop();
       this.sendEvent("terminated");
     });
@@ -2516,8 +2523,22 @@ class FelidaeDebugAdapter implements vscode.DebugAdapter {
     // wait for that first real stop before replying, so the very first
     // "stopped" event corresponds to a line the child actually reported.
     await this.waitForStop();
+    await this.configurationDone;
+    if (!this.process) {
+      this.sendResponse(request, undefined, false, "Interpreter exited before debugger startup completed. See Debug Console.");
+      return;
+    }
+    for (const line of this.breakpoints) this.process.stdin.write(`break ${line}\n`);
     this.sendResponse(request);
-    if (this.process) this.sendEvent("stopped", { reason: "entry", threadId: 1, allThreadsStopped: true });
+    if (args.stopOnEntry === false) {
+      const stopped = this.waitForStop();
+      this.process.stdin.write("continue\n");
+      this.sendEvent("continued", { threadId: 1, allThreadsContinued: true });
+      await stopped;
+      if (this.process) this.sendEvent("stopped", { reason: "breakpoint", threadId: 1, allThreadsStopped: true });
+    } else {
+      this.sendEvent("stopped", { reason: "entry", threadId: 1, allThreadsStopped: true });
+    }
   }
 
   private waitForStop(): Promise<void> {
@@ -2579,22 +2600,19 @@ class FelidaeDebugAdapter implements vscode.DebugAdapter {
 
   private async evaluate(request: DapRequest): Promise<void> {
     const args = (request.arguments ?? {}) as { expression?: string };
-    // The real protocol's `print` only resolves one bound name, not an
-    // arbitrary expression; a hover/watch on a compound expression will not
-    // evaluate; take the first token as a best-effort name lookup.
-    const expression = (args.expression ?? "").trim().split(/\s+/)[0];
+    // The native protocol exposes bound names, not arbitrary expressions.
+    const expression = (args.expression ?? "").trim();
     if (!expression) {
       this.sendResponse(request, { result: "", variablesReference: 0 });
       return;
     }
-    if (!this.process) {
-      this.sendResponse(request, undefined, false, "No active Felidae debug session.");
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(expression)) {
+      this.sendResponse(request, undefined, false, "Enter a variable name. Use Run Query for fact queries.");
       return;
     }
-    const value = await new Promise<string | undefined>((resolve) => {
-      this.pendingPrint = { name: expression, resolve };
-      this.process?.stdin.write(`print ${expression}\n`);
-    });
+    // Locals are refreshed before each stopped event. Reading that snapshot
+    // also supports simultaneous hover/watch requests without stdin races.
+    const value = this.locals.find((local) => local.name === expression)?.value;
     this.sendResponse(request, { result: value ?? "<unbound>", variablesReference: 0 });
   }
 
@@ -2653,10 +2671,6 @@ class FelidaeDebugAdapter implements vscode.DebugAdapter {
     }
     const value = /^FELIDAE_DEBUG_VALUE (\S+) = (.*)$/.exec(line);
     if (value) {
-      if (this.pendingPrint && this.pendingPrint.name === value[1]) {
-        this.pendingPrint.resolve(value[2]);
-        this.pendingPrint = undefined;
-      }
       return;
     }
     this.sendOutput(`${line}\n`, "stdout");
@@ -2699,8 +2713,12 @@ class FelidaeDebugConfigurationProvider implements vscode.DebugConfigurationProv
     config.name ??= "Debug Felidae Query";
     config.request ??= "launch";
     config.program ??= activeDocument?.uri.fsPath ?? "${file}";
-    const anchor = activeDocument?.uri ?? vscode.Uri.file(workspacePath ?? "");
-    config.interpreterPath ??= resolveInterpreterPath(anchor);
+    const anchor = typeof config.program === "string" && path.isAbsolute(config.program)
+      ? vscode.Uri.file(config.program)
+      : folder?.uri ?? activeDocument?.uri ?? vscode.Uri.file(workspacePath ?? "");
+    if (!config.interpreterPath?.trim()) config.interpreterPath = resolveInterpreterPath(anchor);
+    else if (!config.interpreterPath.includes("${"))
+      config.interpreterPath = resolveReleaseExecutable(anchor, config.interpreterPath, "felidae");
     config.stopOnEntry ??= true;
     return config;
   }
@@ -2713,7 +2731,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const diagnostics = vscode.languages.createDiagnosticCollection("felidae");
 
-  // Start felidae_debug --lsp if it is available. Everything below keeps
+  // Start felidae --lsp if it is available. Everything below keeps
   // working when it is not; the client only takes over diagnostics, document
   // symbols and go-to-definition, which it computes from the real parse.
   const serverOutput = vscode.window.createOutputChannel("Felidae Language Server");
@@ -2737,7 +2755,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const refreshDiagnostics = (document: vscode.TextDocument, fromEdit = false): void => {
     if (document.languageId !== "felidae") return;
     // When the language server is running it publishes diagnostics itself,
-    // over one long-lived connection. Spawning felidae_debug again per edit
+    // over one long-lived connection. Spawning felidae again per edit
     // would duplicate every message and undo the reason for having a server.
     if (!languageClient.isRunning()) {
       const version = document.version;
@@ -2748,7 +2766,7 @@ export function activate(context: vscode.ExtensionContext): void {
       });
     }
     // The symbol cache backs signature help with real parameter types. It is
-    // another felidae_debug spawn, so with the server running it refreshes on
+    // another felidae spawn, so with the server running it refreshes on
     // open/save rather than on every edit - otherwise the per-keystroke
     // process cost the server was meant to remove just moves here. Signatures
     // change rarely, and resolveCall falls back to a text scan meanwhile.
@@ -2867,6 +2885,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): Thenable<void> {
   // Returned so VS Code waits for the server process to exit instead of
-  // leaving an orphaned felidae_debug behind on reload.
+  // leaving an orphaned felidae process behind on reload.
   return languageClient.stop();
 }

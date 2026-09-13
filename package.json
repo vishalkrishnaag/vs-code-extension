@@ -24,7 +24,7 @@
     "onDebugInitialConfigurations:felidae",
     "onDebugResolve:felidae"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "languages": [
       {
@@ -229,13 +229,16 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "tsc -p ./ && node esbuild.js --production",
+    "test:runtime": "node test/runtime.test.js",
     "generate:libraries": "node scripts/generate-libraries.js",
     "generate:builtin-docs": "node scripts/generate-builtin-docs.js",
     "generate:models": "node scripts/generate-models.js",
     "precompile": "npm run generate:libraries && npm run generate:builtin-docs && npm run generate:models && npm run generate:icon",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "lint": "node --check out/extension.js",
+    "compile": "tsc -p ./ && node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "watch:types": "tsc -watch -p ./ --noEmit",
+    "lint": "node --check dist/extension.js",
     "generate:icon": "node scripts/generate-icon.js",
     "test": "node test/run-all.js",
     "test:lsp": "node scripts/verify-lsp.js"
@@ -245,6 +248,7 @@
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.2",
     "typescript": "^5.3.3"
   },
   "dependencies": {
