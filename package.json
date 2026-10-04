@@ -121,11 +121,6 @@
                 "description": "Felidae source file to run.",
                 "default": "${file}"
               },
-              "query": {
-                "type": "string",
-                "description": "Optional Felidae query to execute. Omit to run main(...).",
-                "default": "? Engineer(name: name)"
-              },
               "interpreterPath": {
                 "type": "string",
                 "description": "Path to the felidae interpreter executable (the same binary Run uses). There is no separate compiler or VM to run first.",
@@ -146,14 +141,6 @@
             "name": "Debug Felidae Main",
             "program": "${file}",
             "stopOnEntry": true
-          },
-          {
-            "type": "felidae",
-            "request": "launch",
-            "name": "Debug Felidae Query",
-            "program": "${file}",
-            "query": "? Engineer(name: name)",
-            "stopOnEntry": true
           }
         ]
       }
@@ -168,8 +155,8 @@
         },
         "felidae.defaultQuery": {
           "type": "string",
-          "default": "? Engineer(name: name)",
-          "description": "Default query shown by the Felidae: Run Query command."
+          "default": "employee.where(active: true).",
+          "description": "Default period-terminated bucket expression shown by Felidae: Run Query."
         }
       }
     },
@@ -240,8 +227,7 @@
     "watch:types": "tsc -watch -p ./ --noEmit",
     "lint": "node --check dist/extension.js",
     "generate:icon": "node scripts/generate-icon.js",
-    "test": "node test/run-all.js",
-    "test:lsp": "node scripts/verify-lsp.js"
+    "test": "node test/run-all.js"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
@@ -251,16 +237,14 @@
     "esbuild": "^0.28.2",
     "typescript": "^5.3.3"
   },
-  "dependencies": {
-    "vscode-languageclient": "^9.0.1"
-  },
+  "dependencies": {},
   "icon": "icons/felidae-icon.png",
   "keywords": [
     "felidae",
     "fx",
     "logic programming",
     "facts",
-    "language server"
+    "language services"
   ],
   "galleryBanner": {
     "color": "#0b1412",

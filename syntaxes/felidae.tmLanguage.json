@@ -59,6 +59,11 @@
     "strings": {
       "patterns": [
         {
+          "name": "constant.language.atom.felidae",
+          "begin": "'",
+          "end": "'"
+        },
+        {
           "name": "string.quoted.double.Felidae",
           "begin": "\"",
           "end": "\"",
@@ -90,8 +95,12 @@
     "keywords": {
       "patterns": [
         {
+          "name": "keyword.control.end.felidae",
+          "match": "\\bend\\b"
+        },
+        {
           "name": "keyword.control.felidae",
-          "match": "\\b(?:def|class|extend|extends|index|where|if|elif|else|return|lambda|then|end)\\b"
+          "match": "\\b(?:def|class|extend|extends|index|where|else|then|for|in|while|switch|case|default|break|continue|try|catch|new|this|super)\\b"
         }
       ]
     },
@@ -107,19 +116,12 @@
         }
       ]
     },
-    "queries": {
-      "patterns": [
-        {
-          "name": "keyword.operator.query.Felidae",
-          "match": "\\?"
-        }
-      ]
-    },
+    "queries": { "patterns": [] },
     "operators": {
       "patterns": [
         {
           "name": "keyword.operator.comparison.Felidae",
-          "match": "==|!=|<=|>=|<|>"
+          "match": "!=|<=|>=|(?<![:!<>=])=(?!=)|<|>"
         },
         {
           "name": "keyword.operator.arithmetic.Felidae",
@@ -183,7 +185,7 @@
       "patterns": [
         {
           "name": "storage.type.primitive.felidae",
-          "match": "(?<=:)\\s*\\b(?:any|array|bool|boolean|decimal|double|float|int|number|string)\\b"
+          "match": "(?<=:)\\s*\\b(?:any|atom|bool|boolean|decimal|double|float|int|list|number|obj|optional|Pair|string)\\b"
         }
       ]
     },

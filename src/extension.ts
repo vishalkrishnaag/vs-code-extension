@@ -7,7 +7,6 @@ import {
   FelidaeDocumentRangeFormattingEditProvider
 } from "./formatter";
 import * as ml from "./mlRanking";
-import * as languageClient from "./languageClient";
 
 type TokenKind =
   | "ident"
@@ -935,7 +934,6 @@ class FelidaeDefinitionProvider implements vscode.DefinitionProvider {
     // results from every registered provider - so answering here as well
     // would show each declaration twice. The server resolves against the real
     // parse, so it wins; this stays as the fallback when it is not running.
-    if (languageClient.isRunning()) return undefined;
     const name = getCallNameAtPosition(document, position);
     if (!name) return undefined;
     const builtin = await builtinDefinition(document, name);
@@ -1004,17 +1002,29 @@ class FelidaeFoldingRangeProvider implements vscode.FoldingRangeProvider {
       /^(?:def[ \t]+)?[A-Za-z_][A-Za-z0-9_:.]*(?:[ \t]+extend[ \t]+[A-Za-z_][A-Za-z0-9_]*)?[ \t]*\(/.test(line) ||
       /^import\b/.test(line) ||
       /^[A-Za-z_][A-Za-z0-9_]*[ \t]*:=/.test(line);
-    const opensEndBlock = (line: string) =>
-      /^\s*class\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+extend\b.*)?\s*$/.test(line) ||
-      /^\s*(?:def[ \t]+)?[A-Za-z_][A-Za-z0-9_:.]*\s*\([^)]*\)\s*=>\s*(?:#.*)?$/.test(line);
-    const closesEndBlock = (line: string) => /^\s*end\.?\s*(?:#.*)?$/.test(line);
+    const defOpensBlock = (lineIndex: number): boolean => {
+      if (!/^\s*def\s+[A-Za-z_][A-Za-z0-9_:.]*\s*\(/.test(lines[lineIndex])) return false;
+      let header = "";
+      for (let index = lineIndex; index < lines.length; index++) {
+        header += ` ${lines[index].replace(/#.*$/, "")}`;
+        if (/=>\s*$/.test(header)) return true;
+        if (/\.\s*$/.test(header)) return false;
+        if (index > lineIndex + 32) return false;
+      }
+      return false;
+    };
+    const opensEndBlock = (line: string, lineIndex: number) =>
+      /^\s*class\s+[A-Za-z_][A-Za-z0-9_.]*(?:\s+extends?\b.*)?\s*(?:#.*)?$/.test(line) ||
+      defOpensBlock(lineIndex) ||
+      /^\s*(?:for\b.*\bthen|while\b.*\bthen|switch\b|try\b|catch\b.*\bthen)\s*(?:#.*)?$/.test(line);
+    const closesEndBlock = (line: string) => /^\s*end\s*(?:#.*)?$/.test(line);
 
     // Explicit `end` is authoritative: fold precisely from its opening
     // declaration/class line to the matching closer, including nested blocks.
     const endBlockStarts: number[] = [];
     const explicitlyFolded = new Set<number>();
     for (let i = 0; i < lines.length; i++) {
-      if (opensEndBlock(lines[i])) {
+      if (opensEndBlock(lines[i], i)) {
         endBlockStarts.push(i);
       } else if (closesEndBlock(lines[i])) {
         const start = endBlockStarts.pop();
@@ -1247,68 +1257,66 @@ const DECLARATION_PATTERN =
   /^(?:def[ \t]+)?([A-Za-z_][A-Za-z0-9_:.]*)(?:[ \t]+extend[ \t]+([A-Za-z_][A-Za-z0-9_]*))?[ \t]*\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)[ \t]*(=>|\.|$)/gm;
 const GLOBAL_BINDING_PATTERN = /^([A-Za-z_][A-Za-z0-9_]*)\s*:=/gm;
 
+interface FelidaeCheckPosition {
+  line?: number;
+  column?: number;
+}
+
+interface FelidaeCheckSymbol {
+  name: string;
+  kind: string;
+  start?: FelidaeCheckPosition;
+  end?: FelidaeCheckPosition;
+  children?: FelidaeCheckSymbol[];
+}
+
+const checkSymbolCache = new Map<string, FelidaeCheckSymbol[]>();
+const checkSymbolsChanged = new vscode.EventEmitter<vscode.Uri>();
+
+function checkedPosition(document: vscode.TextDocument, position: FelidaeCheckPosition | undefined): vscode.Position {
+  const line = Math.min(
+    Math.max(0, Number(position?.line ?? 1) - 1),
+    Math.max(0, document.lineCount - 1)
+  );
+  const column = Math.min(
+    Math.max(0, Number(position?.column ?? 1) - 1),
+    document.lineAt(line).text.length
+  );
+  return new vscode.Position(line, column);
+}
+
+function checkedSymbol(document: vscode.TextDocument, value: FelidaeCheckSymbol): vscode.DocumentSymbol {
+  const start = checkedPosition(document, value.start);
+  const rawEnd = checkedPosition(document, value.end);
+  const end = rawEnd.isAfter(start) ? rawEnd : start.translate(0, 1);
+  const range = new vscode.Range(start, end);
+  const kinds: Record<string, vscode.SymbolKind> = {
+    binding: vscode.SymbolKind.Variable,
+    call: vscode.SymbolKind.Function,
+    class: vscode.SymbolKind.Class,
+    fact: vscode.SymbolKind.Struct,
+    function: vscode.SymbolKind.Function,
+    import: vscode.SymbolKind.Module,
+    method: vscode.SymbolKind.Method
+  };
+  const symbol = new vscode.DocumentSymbol(
+    value.name,
+    value.kind,
+    kinds[value.kind] ?? vscode.SymbolKind.Object,
+    range,
+    range
+  );
+  symbol.children = (value.children ?? []).map((child) => checkedSymbol(document, child));
+  return symbol;
+}
+
 class FelidaeDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
+  readonly onDidChangeDocumentSymbol = checkSymbolsChanged.event;
+
   provideDocumentSymbols(document: vscode.TextDocument): vscode.ProviderResult<vscode.DocumentSymbol[]> {
     if (document.languageId !== "felidae") return [];
-    // Same reasoning as FelidaeDefinitionProvider: the server advertises
-    // documentSymbolProvider, and VS Code concatenates outlines from all
-    // providers, so answering here too would duplicate every entry.
-    if (languageClient.isRunning()) return [];
-    const text = document.getText();
-    const symbols: vscode.DocumentSymbol[] = [];
-
-    const declaration = new RegExp(DECLARATION_PATTERN);
-    let match: RegExpExecArray | null;
-    while ((match = declaration.exec(text)) !== null) {
-      const rawName = match[1];
-      const normalized = normalizeGraphName(rawName);
-      if (isLibraryName(normalized)) continue;
-
-      const isMethod = match[4] === "=>";
-      const nameStart = match.index + match[0].indexOf(rawName);
-      const nameRange = new vscode.Range(
-        document.positionAt(nameStart),
-        document.positionAt(nameStart + rawName.length)
-      );
-      const fullRange = new vscode.Range(
-        document.positionAt(match.index),
-        document.positionAt(match.index + match[0].length)
-      );
-      const detail = isMethod ? (match[2] ? `extends ${match[2]}` : "") : "fact";
-      const symbol = new vscode.DocumentSymbol(
-        rawName,
-        detail,
-        isMethod ? vscode.SymbolKind.Method : vscode.SymbolKind.Struct,
-        fullRange,
-        nameRange
-      );
-
-      if (!isMethod) {
-        for (const field of collectHeadFields(match[3])) {
-          const fieldOffset = text.indexOf(field, match.index);
-          const fieldPos = fieldOffset >= 0 && fieldOffset < match.index + match[0].length
-            ? document.positionAt(fieldOffset)
-            : nameRange.start;
-          const fieldRange = new vscode.Range(fieldPos, fieldPos.translate(0, field.length));
-          symbol.children.push(
-            new vscode.DocumentSymbol(field, "field", vscode.SymbolKind.Field, fieldRange, fieldRange)
-          );
-        }
-      }
-      symbols.push(symbol);
-    }
-
-    const globalBinding = new RegExp(GLOBAL_BINDING_PATTERN);
-    while ((match = globalBinding.exec(text)) !== null) {
-      const name = match[1];
-      const nameRange = new vscode.Range(
-        document.positionAt(match.index),
-        document.positionAt(match.index + name.length)
-      );
-      symbols.push(new vscode.DocumentSymbol(name, "global", vscode.SymbolKind.Variable, nameRange, nameRange));
-    }
-
-    return symbols;
+    return (checkSymbolCache.get(document.uri.toString()) ?? [])
+      .map((symbol) => checkedSymbol(document, symbol));
   }
 }
 
@@ -2044,6 +2052,8 @@ function refreshSymbolCache(document: vscode.TextDocument): void {
   );
 }
 
+const activeCheckProcesses = new Map<string, childProcess.ChildProcess>();
+
 function runtimeCheckDiagnostics(document: vscode.TextDocument): Promise<vscode.Diagnostic[]> {
   return new Promise((resolve) => {
     if (document.uri.scheme !== "file") {
@@ -2060,11 +2070,14 @@ function runtimeCheckDiagnostics(document: vscode.TextDocument): Promise<vscode.
       )]);
       return;
     }
-    childProcess.execFile(
+    const key = document.uri.toString();
+    activeCheckProcesses.get(key)?.kill();
+    const check = childProcess.execFile(
       interpreterPath,
-      [document.uri.fsPath, "--check-json"],
+      ["--check-json", "--stdin", document.uri.fsPath],
       { cwd: path.dirname(document.uri.fsPath), windowsHide: true, timeout: 15000 },
       (error, stdout, stderr) => {
+        if (activeCheckProcesses.get(key) === check) activeCheckProcesses.delete(key);
         const jsonDiagnostics = parseRuntimeJsonDiagnostics(document, stdout);
         if (jsonDiagnostics) {
           resolve(jsonDiagnostics);
@@ -2087,6 +2100,8 @@ function runtimeCheckDiagnostics(document: vscode.TextDocument): Promise<vscode.
         resolve([...analyzerDiagnostics, new vscode.Diagnostic(range, message, severity)]);
       }
     );
+    activeCheckProcesses.set(key, check);
+    check.stdin?.end(document.getText());
   });
 }
 
@@ -2098,8 +2113,8 @@ function parseRuntimeJsonDiagnostics(document: vscode.TextDocument, stdout: stri
     const payload = JSON.parse(text) as {
       diagnostics?: Array<{
         severity?: string;
-        line?: number;
-        column?: number;
+        start?: { line?: number; column?: number };
+        end?: { line?: number; column?: number };
         message?: string;
       }>;
     };
@@ -2108,8 +2123,8 @@ function parseRuntimeJsonDiagnostics(document: vscode.TextDocument, stdout: stri
     return payload.diagnostics
       .filter((item) => typeof item.message === "string" && item.message.trim().length > 0)
       .map((item) => {
-        const sourceLine = Math.max(0, Number(item.line ?? 1) - 1);
-        const sourceColumn = Math.max(0, Number(item.column ?? 1) - 1);
+        const sourceLine = Math.max(0, Number(item.start?.line ?? 1) - 1);
+        const sourceColumn = Math.max(0, Number(item.start?.column ?? 1) - 1);
         const boundedLine = Math.min(sourceLine, Math.max(0, document.lineCount - 1));
         const lineText = document.lineAt(boundedLine).text;
         const boundedColumn = Math.min(sourceColumn, lineText.length);
@@ -2123,7 +2138,10 @@ function parseRuntimeJsonDiagnostics(document: vscode.TextDocument, stdout: stri
         return new vscode.Diagnostic(
           new vscode.Range(
             new vscode.Position(boundedLine, boundedColumn),
-            new vscode.Position(boundedLine, Math.min(boundedColumn + 1, lineText.length))
+            new vscode.Position(
+              Math.min(Math.max(0, Number(item.end?.line ?? item.start?.line ?? 1) - 1), document.lineCount - 1),
+              Math.max(boundedColumn + 1, Number(item.end?.column ?? item.start?.column ?? 1) - 1)
+            )
           ),
           item.message ?? "Felidae AST diagnostic",
           severity
@@ -2260,7 +2278,7 @@ async function runQuery(uri?: vscode.Uri): Promise<void> {
   }
 
   const config = vscode.workspace.getConfiguration("felidae");
-  const defaultQuery = config.get<string>("defaultQuery", "? Engineer(name: name)");
+  const defaultQuery = config.get<string>("defaultQuery", "employee.where(active: true).");
   const editor = vscode.window.activeTextEditor;
   const selectedText = editor?.document.uri.toString() === document.uri.toString()
     ? editor.document.getText(editor.selection).trim()
@@ -2279,8 +2297,9 @@ async function runQuery(uri?: vscode.Uri): Promise<void> {
   const programPath = document.uri.fsPath;
   const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
   if (!installed) return;
-  const normalizedQuery = query.trim().startsWith("?") ? query.trim() : `? ${query.trim()}`;
-  runInTerminal(interpreterPath, [programPath, normalizedQuery], path.dirname(programPath));
+  const trimmedQuery = query.trim();
+  const normalizedQuery = trimmedQuery.endsWith(".") ? trimmedQuery : `${trimmedQuery}.`;
+  runInTerminal(interpreterPath, [programPath, "--query", normalizedQuery], path.dirname(programPath));
 }
 
 // A `main` *declaration*, which like every Felidae declaration sits at column
@@ -2500,7 +2519,6 @@ class FelidaeDebugAdapter implements vscode.DebugAdapter {
     const args = (request.arguments ?? {}) as Record<string, unknown>;
     const interpreterPath = typeof args.interpreterPath === "string" ? args.interpreterPath : undefined;
     const program = typeof args.program === "string" ? args.program : undefined;
-    const query = typeof args.query === "string" ? args.query : undefined;
 
     if (!interpreterPath || !program) {
       this.sendResponse(request, undefined, false, "Debug configuration requires interpreterPath and program.");
@@ -2508,11 +2526,7 @@ class FelidaeDebugAdapter implements vscode.DebugAdapter {
       return;
     }
 
-    // --debug installs the goal hook regardless of what runs afterward, so
-    // it composes with a query the same as with main(...): confirmed against
-    // the real interpreter, `felidae program.fx '? Query(...)' --debug`
-    // stops on entry and then reports the query's solutions once continued.
-    const launchArgs = query ? [program, query, "--debug"] : [program, "--debug"];
+    const launchArgs = [program, "--debug"];
     this.currentProgram = program;
     this.currentLine = 1;
     this.stdoutBuffer = "";
@@ -2752,48 +2766,18 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const diagnostics = vscode.languages.createDiagnosticCollection("felidae");
 
-  // Start felidae --lsp if it is available. Everything below keeps
-  // working when it is not; the client only takes over diagnostics, document
-  // symbols and go-to-definition, which it computes from the real parse.
-  const serverOutput = vscode.window.createOutputChannel("Felidae Language Server");
-  context.subscriptions.push(serverOutput);
-  // resolveDebugInterpreterPath resolves a configured relative path against
-  // the file's workspace folder, so give it whatever anchor exists.
-  const serverAnchor =
-    vscode.window.activeTextEditor?.document.uri ??
-    vscode.workspace.workspaceFolders?.[0]?.uri ??
-    vscode.Uri.file(process.cwd());
-  const serverPath = resolveToolingPath(serverAnchor);
-  void languageClient.start(serverPath, serverOutput).then((started: boolean) => {
-    if (!started) return;
-    // The server's diagnostics supersede any the fallback path already
-    // published for files opened before it finished starting.
-    diagnostics.clear();
-  });
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const DIAGNOSTICS_DEBOUNCE_MS = 350;
 
   const refreshDiagnostics = (document: vscode.TextDocument, fromEdit = false): void => {
     if (document.languageId !== "felidae") return;
-    // When the language server is running it publishes diagnostics itself,
-    // over one long-lived connection. Spawning felidae again per edit
-    // would duplicate every message and undo the reason for having a server.
-    if (!languageClient.isRunning()) {
-      const version = document.version;
-      diagnostics.set(document.uri, []);
-      void runtimeCheckDiagnostics(document).then((runtimeDiagnostics) => {
-        if (document.isClosed || document.version !== version) return;
-        diagnostics.set(document.uri, runtimeDiagnostics);
-      });
-    }
-    // The symbol cache backs signature help with real parameter types. It is
-    // another felidae spawn, so with the server running it refreshes on
-    // open/save rather than on every edit - otherwise the per-keystroke
-    // process cost the server was meant to remove just moves here. Signatures
-    // change rarely, and resolveCall falls back to a text scan meanwhile.
-    if (!(fromEdit && languageClient.isRunning())) {
-      refreshSymbolCache(document);
-    }
+    const version = document.version;
+    diagnostics.set(document.uri, []);
+    void runtimeCheckDiagnostics(document).then((runtimeDiagnostics) => {
+      if (document.isClosed || document.version !== version) return;
+      diagnostics.set(document.uri, runtimeDiagnostics);
+    });
+    if (!fromEdit) refreshSymbolCache(document);
   };
 
   const scheduleDiagnosticsRefresh = (document: vscode.TextDocument): void => {
@@ -2848,6 +2832,8 @@ export function activate(context: vscode.ExtensionContext): void {
         clearTimeout(timer);
         debounceTimers.delete(key);
       }
+      activeCheckProcesses.get(key)?.kill();
+      activeCheckProcesses.delete(key);
     }),
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       if (editor) refreshDiagnostics(editor.document);
@@ -2904,8 +2890,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 }
 
-export function deactivate(): Thenable<void> {
-  // Returned so VS Code waits for the server process to exit instead of
-  // leaving an orphaned felidae process behind on reload.
-  return languageClient.stop();
+export function deactivate(): void {
+  for (const process of activeCheckProcesses.values()) process.kill();
+  activeCheckProcesses.clear();
 }

@@ -17,8 +17,13 @@
     ["(", ")"],
     ["{", "}"],
     ["[", "]"],
-    ["\"", "\""]
+    ["\"", "\""],
+    ["'", "'"]
   ],
+  "indentationRules": {
+    "increaseIndentPattern": "^\\s*(?:class\\b|def\\b.*=>\\s*$|for\\b.*\\bthen\\s*$|while\\b.*\\bthen\\s*$|switch\\b|try\\b|catch\\b.*\\bthen\\s*$)",
+    "decreaseIndentPattern": "^\\s*(?:end\\b|else\\b|case\\b|default\\b|catch\\b)"
+  },
   "folding": {
     "markers": {
       "start": "^\\s*#\\s*region\\b",

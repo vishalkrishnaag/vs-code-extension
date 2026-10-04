@@ -1,5 +1,5 @@
-// Bundles src/extension.ts (and everything it imports, including
-// vscode-languageclient) into one dist/extension.js. This is the fix for
+// Bundles src/extension.ts and its local helpers into one dist/extension.js.
+// This is the fix for
 // vsce's own "you should bundle your extension" warning: without it, the
 // packaged VSIX ships node_modules verbatim - dependency-tree JS files a
 // bundler would otherwise inline - which is what "565 files, 189 of them
@@ -11,15 +11,17 @@
 //
 // Usage: node esbuild.js [--watch] [--production]
 const esbuild = require("esbuild");
+const path = require("path");
 
 const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
 
 async function main() {
   const ctx = await esbuild.context({
-    entryPoints: ["src/extension.ts"],
+    absWorkingDir: __dirname,
+    entryPoints: [path.join(__dirname, "src", "extension.ts")],
     bundle: true,
-    outfile: "dist/extension.js",
+    outfile: path.join(__dirname, "dist", "extension.js"),
     external: ["vscode"],
     platform: "node",
     format: "cjs",
