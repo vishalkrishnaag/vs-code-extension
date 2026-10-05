@@ -47,6 +47,8 @@ const suites = [
   { name: "runtime launch and debugger", args: [path.join(HERE, "runtime.test.js")] },
   { name: "providers (rename/references/highlight)", args: [path.join(HERE, "providers.test.js")] },
   { name: "signature help + completion", args: [path.join(HERE, "signature.test.js")] },
+  { name: "editor features (inlay hints, selection, def kinds)", args: [path.join(HERE, "features.test.js")] },
+  { name: "cells and cell runner", args: [path.join(HERE, "cells.test.js")] },
   {
     name: "folding",
     args: [path.join(HERE, "folding.test.js"), ...(foldingCorpusFile ? [foldingCorpusFile] : [])]

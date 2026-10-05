@@ -3,6 +3,11 @@
   "name": "Felidae Dark",
   "type": "dark",
   "semanticHighlighting": true,
+  "semanticTokenColors": {
+    "felidaeDefBinding": { "foreground": "#c4a2ff", "fontStyle": "bold" },
+    "felidaeDefFunction": { "foreground": "#18f0d7", "fontStyle": "bold" },
+    "felidaeDefFact": { "foreground": "#f7a93f", "fontStyle": "bold" }
+  },
   "colors": {
     "editor.background": "#0b1412",
     "editor.foreground": "#d6e5e1",
@@ -66,6 +71,11 @@
       "name": "Keywords",
       "scope": ["keyword.control.felidae"],
       "settings": { "foreground": "#ff8ec0", "fontStyle": "bold" }
+    },
+    {
+      "name": "End keyword",
+      "scope": ["keyword.control.end.felidae"],
+      "settings": { "foreground": "#a8708f", "fontStyle": "" }
     },
     {
       "name": "Import keyword",

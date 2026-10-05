@@ -7,6 +7,12 @@
     ["{", "}"],
     ["[", "]"]
   ],
+  "colorizedBracketPairs": [
+    ["(", ")"],
+    ["{", "}"],
+    ["[", "]"]
+  ],
+  "wordPattern": "[A-Za-z_][A-Za-z0-9_]*|-?\\d+(?:\\.\\d+)?",
   "autoClosingPairs": [
     ["(", ")"],
     ["{", "}"],
@@ -21,7 +27,7 @@
     ["'", "'"]
   ],
   "indentationRules": {
-    "increaseIndentPattern": "^\\s*(?:class\\b|def\\b.*=>\\s*$|for\\b.*\\bthen\\s*$|while\\b.*\\bthen\\s*$|switch\\b|try\\b|catch\\b.*\\bthen\\s*$)",
+    "increaseIndentPattern": "^\\s*(?:class\\b|def\\b.*=>\\s*$|for\\b.*\\bthen\\s*$|while\\b.*\\bthen\\s*$|switch\\b|try\\b)",
     "decreaseIndentPattern": "^\\s*(?:end\\b|else\\b|case\\b|default\\b|catch\\b)"
   },
   "folding": {

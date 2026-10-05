@@ -4,7 +4,6 @@ const stubPath = path.resolve(__dirname, "vscode-stub.js");
 const origResolve = Module._resolveFilename;
 Module._resolveFilename = function (request, ...rest) {
   if (request === "vscode") return stubPath;
-  if (/^vscode-languageclient/.test(request)) return require("path").resolve(require("path").resolve(__dirname, "lc-stub.js"));
   return origResolve.call(this, request, ...rest);
 };
 const vscode = require(stubPath);

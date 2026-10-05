@@ -84,35 +84,13 @@ function leadingWidth(rawLine: string): number {
   return width;
 }
 
-// A depth-0 `class`, `=>` or word-boundary `then` that is the last token on the
-// line (masked, so never one found inside a string/comment) means "this
-// block's body continues on later lines." One with content after it on
-// the same line (`Foo() => return`, `if x then return 1`) is a complete
-// inline block - nothing to open.
+// Only constructs that own an explicit `end` open formatter frames. A
+// conditional `then` expression does not own an `end`, and catch/case/default
+// continue the surrounding try/switch frame rather than opening another one.
 function opensBlock(masked: string): boolean {
-  if (/^\s*class\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+extend\b.*)?\s*$/.test(masked)) {
-    return true;
-  }
-  let localDepth = 0;
-  let tailKeywordEnd = -1;
-  for (let i = 0; i < masked.length; i++) {
-    const ch = masked[i];
-    if (OPENERS.includes(ch)) {
-      localDepth++;
-    } else if (CLOSERS.includes(ch)) {
-      localDepth--;
-    } else if (localDepth === 0) {
-      if (ch === "=" && masked[i + 1] === ">") tailKeywordEnd = i + 2;
-      else if (
-        masked.startsWith("then", i) &&
-        (i === 0 || /\s/.test(masked[i - 1])) &&
-        !/[A-Za-z0-9_]/.test(masked[i + 4] ?? "")
-      ) {
-        tailKeywordEnd = i + 4;
-      }
-    }
-  }
-  return tailKeywordEnd >= 0 && masked.slice(tailKeywordEnd).trim().length === 0;
+  return /^\s*class\s+[A-Za-z_][A-Za-z0-9_.]*(?:\s+extends?\b.*)?\s*$/.test(masked) ||
+    /^\s*def\s+[A-Za-z_][A-Za-z0-9_.]*\s*\([^)]*\)\s*=>\s*$/.test(masked) ||
+    /^\s*(?:for\b.*\bthen|while\b.*\bthen|switch\b.*|try)\s*$/.test(masked);
 }
 
 interface BlockFrame {
@@ -149,8 +127,8 @@ export function formatFelidaeLines(rawLines: readonly string[]): string[] {
 
     const masked = maskLine(rawLine);
     const isComment = trimmed.startsWith("#");
-    const isBareElse = trimmed === "else";
-    const isBareEnd = /^end\.?$/.test(trimmed);
+    const isBranch = /^(?:else\b|catch\b.*\bthen|case\b.*\bthen|default\s+then)\s*$/.test(trimmed);
+    const isBareEnd = trimmed === "end";
     // A comment's own column is only trustworthy as a dedent signal when it
     // opens a new paragraph (preceded by a blank line, or file start) - a
     // leading doc-comment for the next top-level declaration. A comment
@@ -166,7 +144,7 @@ export function formatFelidaeLines(rawLines: readonly string[]): string[] {
       const width = leadingWidth(rawLine);
       if (isBareEnd) {
         if (frames.length > 0) frames.pop();
-      } else if (isBareElse) {
+      } else if (isBranch) {
         while (frames.length > 0 && width < frames[frames.length - 1].headWidth) frames.pop();
         // If the top frame's head is at exactly this width, `else` pairs
         // with it (stays open, body resumes). Otherwise (malformed input)
@@ -179,7 +157,7 @@ export function formatFelidaeLines(rawLines: readonly string[]): string[] {
     let depthUnits: number;
     if (isBareEnd) {
       depthUnits = frames.length + bracketLevels.length;
-    } else if (isBareElse && frames.length > 0) {
+    } else if (isBranch && frames.length > 0) {
       depthUnits = frames.length - 1 + bracketLevels.length;
     } else {
       // Leading closers dedent this line immediately.

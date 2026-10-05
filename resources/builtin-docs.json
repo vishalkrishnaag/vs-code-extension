@@ -2,25 +2,25 @@
   "then": {
     "heading": "then",
     "description": "Pipes one expression into the next expression from left to right. The right side can read the previous successful step through system.result.",
-    "example": "score := Load() then Normalize(input: system.result) then Rank(input: system.result)",
+    "example": "def score := Load() then Normalize(input: system.result) then Rank(input: system.result).",
     "params": []
   },
   "system:result": {
     "heading": "system.result",
     "description": "Read-only value for the previous successful step inside the right side of a then pipeline. It is unavailable outside that pipeline scope.",
-    "example": "result := StepOne() then StepTwo(input: system.result)",
+    "example": "def result := StepOne() then StepTwo(input: system.result).",
     "params": []
   },
   "lambda": {
     "heading": "lambda",
     "description": "Filters or maps an array/fact collection with a local immutable item variable.",
-    "example": "Adults := lambda(Person, p => p.age >= 18)",
+    "example": "def Adults := lambda(Person, p => p.age >= 18).",
     "params": []
   },
   "ParseDoc": {
     "heading": "ParseDoc",
     "description": "Demo parser function used by method-style examples to map document text.",
-    "example": "parsed := lambda(docs, d => ParseDoc(d.doc))",
+    "example": "def parsed := lambda(docs, d => ParseDoc(d.doc)).",
     "params": []
   },
   "count": {
@@ -73,14 +73,14 @@
   },
   "throw": {
     "heading": "throw",
-    "description": "Signals an exception reason. With target:, routes the message to a handler rule.",
-    "example": "throw(msg: \"thrown from module a\", target: DivideFailureHandler)",
+    "description": "Raises an exception with an atom kind and string message.",
+    "example": "throw(kind: late, message: \"after the write\")",
     "params": [
       {
-        "name": "msg"
+        "name": "kind"
       },
       {
-        "name": "target"
+        "name": "message"
       }
     ]
   },
@@ -261,7 +261,7 @@
   "str:trim": {
     "heading": "str.trim",
     "description": "Removes leading and trailing whitespace from a string.",
-    "example": "text := str.trim(data: \"  hello  \")",
+    "example": "def text := str.trim(data: \"  hello  \").",
     "params": [
       {
         "name": "data"
@@ -271,7 +271,7 @@
   "str:split": {
     "heading": "str.split",
     "description": "Splits a string by a non-empty delimiter and returns an array of strings.",
-    "example": "parts := str.split(data: \"a,b,c\", delimiter: \",\")",
+    "example": "def parts := str.split(data: \"a,b,c\", delimiter: \",\").",
     "params": [
       {
         "name": "data"
@@ -284,7 +284,7 @@
   "str:replace": {
     "heading": "str.replace",
     "description": "Replaces all occurrences of a search string with a replacement string.",
-    "example": "text := str.replace(data: \"a-b\", search: \"-\", replacement: \":\")",
+    "example": "def text := str.replace(data: \"a-b\", search: \"-\", replacement: \":\").",
     "params": [
       {
         "name": "data"
@@ -300,7 +300,7 @@
   "str:startsWith": {
     "heading": "str.startsWith",
     "description": "Returns 1.0 when a string starts with the requested prefix, otherwise 0.0.",
-    "example": "ok := str.startsWith(data: \"Alice\", prefix: \"Al\")",
+    "example": "def ok := str.startsWith(data: \"Alice\", prefix: \"Al\").",
     "params": [
       {
         "name": "data"
@@ -313,7 +313,7 @@
   "str:endsWith": {
     "heading": "str.endsWith",
     "description": "Returns 1.0 when a string ends with the requested suffix, otherwise 0.0.",
-    "example": "ok := str.endsWith(data: \"Alice\", suffix: \"ice\")",
+    "example": "def ok := str.endsWith(data: \"Alice\", suffix: \"ice\").",
     "params": [
       {
         "name": "data"
@@ -371,7 +371,7 @@
   "fn:array": {
     "heading": "fn:array",
     "description": "Creates an immutable Felidae array value from the data argument.",
-    "example": "array1 := fn:array(data: [1, 2, 3, 4])",
+    "example": "def array1 := fn:array(data: [1, 2, 3, 4]).",
     "params": [
       {
         "name": "data"
@@ -381,7 +381,7 @@
   "fn:pair": {
     "heading": "fn:pair",
     "description": "Creates an immutable pair value with first and last fields.",
-    "example": "pair := fn:pair(first: \"web\", last: 2.0)",
+    "example": "def pair := fn:pair(first: \"web\", last: 2.0).",
     "params": [
       {
         "name": "first"
@@ -394,7 +394,7 @@
   "fn:tuple": {
     "heading": "fn:tuple",
     "description": "Creates an immutable tuple-style value from named fields.",
-    "example": "tuple := fn:tuple(first: \"hello\", second: \"world\")",
+    "example": "def tuple := fn:tuple(first: \"hello\", second: \"world\").",
     "params": [
       {
         "name": "first"
@@ -462,7 +462,7 @@
   "json:has": {
     "heading": "json.has",
     "description": "Returns 1.0 when a JSON/map value contains the requested key, otherwise 0.0.",
-    "example": "ok := json.has(data: object, key: \"name\")",
+    "example": "def ok := json.has(data: object, key: \"name\").",
     "params": [
       {
         "name": "data"
@@ -475,7 +475,7 @@
   "json:keys": {
     "heading": "json.keys",
     "description": "Returns an array containing the keys of a JSON/map value.",
-    "example": "keys := json.keys(data: object)",
+    "example": "def keys := json.keys(data: object).",
     "params": [
       {
         "name": "data"
@@ -485,7 +485,7 @@
   "json:set": {
     "heading": "json.set",
     "description": "Returns a copy of a JSON/map value with one key added or replaced.",
-    "example": "next := json.set(data: object, key: \"office\", value: \"SEA\")",
+    "example": "def next := json.set(data: object, key: \"office\", value: \"SEA\").",
     "params": [
       {
         "name": "data"
@@ -501,7 +501,7 @@
   "json:remove": {
     "heading": "json.remove",
     "description": "Returns a copy of a JSON/map value without the requested key.",
-    "example": "next := json.remove(data: object, key: \"role\")",
+    "example": "def next := json.remove(data: object, key: \"role\").",
     "params": [
       {
         "name": "data"
@@ -514,7 +514,7 @@
   "json:toText": {
     "heading": "json.toText",
     "description": "Serializes Felidae values, arrays, maps, and fact-like rows into JSON text.",
-    "example": "jsonText := json.toText(data: rows)",
+    "example": "def jsonText := json.toText(data: rows).",
     "params": [
       {
         "name": "data"
@@ -524,7 +524,7 @@
   "csv:parse": {
     "heading": "csv.parse",
     "description": "Parses CSV text in the direct interpreter and returns an array of row maps.",
-    "example": "rows := csv.parse(data: csvText)",
+    "example": "def rows := csv.parse(data: csvText).",
     "params": [
       {
         "name": "data"
@@ -534,7 +534,7 @@
   "csv:toFacts": {
     "heading": "csv.toFacts",
     "description": "Parses CSV text into fact maps of the requested source-level type.",
-    "example": "schools := csv.toFacts(data: csvText, type: \"School\")",
+    "example": "def schools := csv.toFacts(data: csvText, type: \"School\").",
     "params": [
       {
         "name": "data"
@@ -547,7 +547,7 @@
   "csv:toText": {
     "heading": "csv.toText",
     "description": "Writes an array of row maps back to CSV text in the direct interpreter.",
-    "example": "text := csv.toText(data: rows)",
+    "example": "def text := csv.toText(data: rows).",
     "params": [
       {
         "name": "data"
@@ -557,7 +557,7 @@
   "csv:toFelidaeFacts": {
     "heading": "csv.toFelidaeFacts",
     "description": "Converts row maps into Felidae fact declaration text.",
-    "example": "facts := csv.toFelidaeFacts(data: rows, type: \"School\")",
+    "example": "def facts := csv.toFelidaeFacts(data: rows, type: \"School\").",
     "params": [
       {
         "name": "data"
@@ -570,13 +570,13 @@
   "console:readLine": {
     "heading": "console.readLine",
     "description": "Reads one line from standard input using the native C++ console implementation.",
-    "example": "line := console.readLine()",
+    "example": "def line := console.readLine().",
     "params": []
   },
   "console:write": {
     "heading": "console.write",
     "description": "Writes a value to standard output without a trailing newline.",
-    "example": "status := console.write(value: \"hello\")",
+    "example": "def status := console.write(value: \"hello\").",
     "params": [
       {
         "name": "value"
@@ -586,7 +586,7 @@
   "console:writeLine": {
     "heading": "console.writeLine",
     "description": "Writes a value to standard output with a trailing newline.",
-    "example": "status := console.writeLine(value: \"hello\")",
+    "example": "def status := console.writeLine(value: \"hello\").",
     "params": [
       {
         "name": "value"
@@ -596,7 +596,7 @@
   "system:print": {
     "heading": "system.print",
     "description": "Prints a value to standard output with a trailing newline. The system library is available automatically.",
-    "example": "status := system.print(value: \"hello\")",
+    "example": "def status := system.print(value: \"hello\").",
     "params": [
       {
         "name": "value"
@@ -606,7 +606,7 @@
   "file:readFile": {
     "heading": "file.readFile",
     "description": "Reads a bounded file as text through the direct interpreter file service.",
-    "example": "text := file.readFile(file: \"data.txt\")",
+    "example": "def text := file.readFile(file: \"data.txt\").",
     "params": [
       {
         "name": "file"
@@ -616,7 +616,7 @@
   "file:readLines": {
     "heading": "file.readLines",
     "description": "Reads a file and returns an immutable array of lines.",
-    "example": "lines := file.readLines(path: \"data.txt\")",
+    "example": "def lines := file.readLines(path: \"data.txt\").",
     "params": [
       {
         "name": "path"
@@ -626,7 +626,7 @@
   "file:readLine": {
     "heading": "file.readLine",
     "description": "Reads a single zero-based line from a file.",
-    "example": "line := file.readLine(path: \"data.txt\", line: 0)",
+    "example": "def line := file.readLine(path: \"data.txt\", line: 0).",
     "params": [
       {
         "name": "path"
@@ -639,7 +639,7 @@
   "file:writeFile": {
     "heading": "file.writeFile",
     "description": "Writes text to a file, replacing existing content.",
-    "example": "status := file.writeFile(path: \"data.txt\", data: \"hello\")",
+    "example": "def status := file.writeFile(path: \"data.txt\", data: \"hello\").",
     "params": [
       {
         "name": "path"
@@ -652,7 +652,7 @@
   "file:writeLines": {
     "heading": "file.writeLines",
     "description": "Writes an array of strings to a file, one line per item.",
-    "example": "status := file.writeLines(path: \"data.txt\", data: [\"a\", \"b\"])",
+    "example": "def status := file.writeLines(path: \"data.txt\", data: [\"a\", \"b\"]).",
     "params": [
       {
         "name": "path"
@@ -665,7 +665,7 @@
   "file:appendFile": {
     "heading": "file.appendFile",
     "description": "Appends text to a file through the native C++ file implementation.",
-    "example": "status := file.appendFile(path: \"data.txt\", data: \"more\")",
+    "example": "def status := file.appendFile(path: \"data.txt\", data: \"more\").",
     "params": [
       {
         "name": "path"
@@ -678,7 +678,7 @@
   "file:exists": {
     "heading": "file.exists",
     "description": "Returns 1.0 when a path exists, otherwise 0.0.",
-    "example": "ok := file.exists(path: \"data.txt\")",
+    "example": "def ok := file.exists(path: \"data.txt\").",
     "params": [
       {
         "name": "path"
@@ -688,7 +688,7 @@
   "file:deleteFile": {
     "heading": "file.deleteFile",
     "description": "Deletes a file and returns 1.0 when a file was removed, otherwise 0.0.",
-    "example": "removed := file.deleteFile(path: \"data.txt\")",
+    "example": "def removed := file.deleteFile(path: \"data.txt\").",
     "params": [
       {
         "name": "path"
@@ -698,7 +698,7 @@
   "http:get": {
     "heading": "http.get",
     "description": "Fetches a URL through the native cpp-httplib-backed HTTP module.",
-    "example": "body := http.get(url: \"https://example.com\")",
+    "example": "def body := http.get(url: \"https://example.com\").",
     "params": [
       {
         "name": "url"
@@ -708,7 +708,7 @@
   "http:post": {
     "heading": "http.post",
     "description": "Sends a POST request through the native cpp-httplib-backed HTTP module.",
-    "example": "body := http.post(url: \"http://127.0.0.1:8080/\", body: \"hello\")",
+    "example": "def body := http.post(url: \"http://127.0.0.1:8080/\", body: \"hello\").",
     "params": [
       {
         "name": "url"
@@ -721,7 +721,7 @@
   "http:put": {
     "heading": "http.put",
     "description": "Sends a PUT request through the native cpp-httplib-backed HTTP module.",
-    "example": "body := http.put(url: \"http://127.0.0.1:8080/\", body: \"hello\")",
+    "example": "def body := http.put(url: \"http://127.0.0.1:8080/\", body: \"hello\").",
     "params": [
       {
         "name": "url"
@@ -734,7 +734,7 @@
   "http:delete": {
     "heading": "http.delete",
     "description": "Sends a DELETE request through the native cpp-httplib-backed HTTP module.",
-    "example": "body := http.delete(url: \"http://127.0.0.1:8080/\")",
+    "example": "def body := http.delete(url: \"http://127.0.0.1:8080/\").",
     "params": [
       {
         "name": "url"
@@ -744,7 +744,7 @@
   "http:serveStatic": {
     "heading": "http.serveStatic",
     "description": "Starts a blocking local server whose GET, POST, PUT, and DELETE / endpoints return the provided response.",
-    "example": "status := http.serveStatic(host: \"127.0.0.1\", port: 8080, response: \"Hello World\")",
+    "example": "def status := http.serveStatic(host: \"127.0.0.1\", port: 8080, response: \"Hello World\").",
     "params": [
       {
         "name": "host"
@@ -760,13 +760,13 @@
   "process:platform": {
     "heading": "process.platform",
     "description": "Returns the current OS platform name: windows, linux, macos, or unknown.",
-    "example": "platform := process.platform()",
+    "example": "def platform := process.platform().",
     "params": []
   },
   "process:exec": {
     "heading": "process.exec",
     "description": "Runs an explicit shell command and returns captured output. Use only in trusted scripts/tests.",
-    "example": "output := process.exec(command: \"echo hello\")",
+    "example": "def output := process.exec(command: \"echo hello\").",
     "params": [
       {
         "name": "command"
@@ -776,7 +776,7 @@
   "process:sleep": {
     "heading": "process.sleep",
     "description": "Sleeps for the provided number of milliseconds.",
-    "example": "ready := process.sleep(milliseconds: 800)",
+    "example": "def ready := process.sleep(milliseconds: 800).",
     "params": [
       {
         "name": "milliseconds"
@@ -786,7 +786,7 @@
   "math:sqrt": {
     "heading": "math.sqrt",
     "description": "Returns the square root of a number.",
-    "example": "root := math.sqrt(value: 81)",
+    "example": "def root := math.sqrt(value: 81).",
     "params": [
       {
         "name": "value"
@@ -796,7 +796,7 @@
   "math:pow": {
     "heading": "math.pow",
     "description": "Raises a base number to an exponent.",
-    "example": "value := math.pow(base: 2, exponent: 8)",
+    "example": "def value := math.pow(base: 2, exponent: 8).",
     "params": [
       {
         "name": "base"
@@ -809,7 +809,7 @@
   "math:sin": {
     "heading": "math.sin",
     "description": "Returns the sine of a numeric value.",
-    "example": "value := math.sin(value: angle)",
+    "example": "def value := math.sin(value: angle).",
     "params": [
       {
         "name": "value"
@@ -819,7 +819,7 @@
   "math:cos": {
     "heading": "math.cos",
     "description": "Returns the cosine of a numeric value.",
-    "example": "value := math.cos(value: angle)",
+    "example": "def value := math.cos(value: angle).",
     "params": [
       {
         "name": "value"
@@ -829,7 +829,7 @@
   "math:tan": {
     "heading": "math.tan",
     "description": "Returns the tangent of a numeric value.",
-    "example": "value := math.tan(value: angle)",
+    "example": "def value := math.tan(value: angle).",
     "params": [
       {
         "name": "value"
@@ -839,7 +839,7 @@
   "math:asin": {
     "heading": "math.asin",
     "description": "Returns the arcsine of a numeric value.",
-    "example": "value := math.asin(value: ratio)",
+    "example": "def value := math.asin(value: ratio).",
     "params": [
       {
         "name": "value"
@@ -849,7 +849,7 @@
   "math:acos": {
     "heading": "math.acos",
     "description": "Returns the arccosine of a numeric value.",
-    "example": "value := math.acos(value: ratio)",
+    "example": "def value := math.acos(value: ratio).",
     "params": [
       {
         "name": "value"
@@ -859,7 +859,7 @@
   "math:atan": {
     "heading": "math.atan",
     "description": "Returns the arctangent of a numeric value.",
-    "example": "value := math.atan(value: slope)",
+    "example": "def value := math.atan(value: slope).",
     "params": [
       {
         "name": "value"
@@ -869,7 +869,7 @@
   "math:atan2": {
     "heading": "math.atan2",
     "description": "Returns the arctangent of y/x using both signs to select the quadrant.",
-    "example": "value := math.atan2(y: y, x: x)",
+    "example": "def value := math.atan2(y: y, x: x).",
     "params": [
       {
         "name": "y"
@@ -882,7 +882,7 @@
   "math:log": {
     "heading": "math.log",
     "description": "Returns the natural logarithm of a number.",
-    "example": "value := math.log(value: 10)",
+    "example": "def value := math.log(value: 10).",
     "params": [
       {
         "name": "value"
@@ -892,7 +892,7 @@
   "math:log10": {
     "heading": "math.log10",
     "description": "Returns the base-10 logarithm of a number.",
-    "example": "value := math.log10(value: 100)",
+    "example": "def value := math.log10(value: 100).",
     "params": [
       {
         "name": "value"
@@ -902,7 +902,7 @@
   "math:exp": {
     "heading": "math.exp",
     "description": "Returns e raised to the provided numeric value.",
-    "example": "value := math.exp(value: 2)",
+    "example": "def value := math.exp(value: 2).",
     "params": [
       {
         "name": "value"
@@ -912,7 +912,7 @@
   "math:abs": {
     "heading": "math.abs",
     "description": "Returns the absolute value of a number.",
-    "example": "value := math.abs(value: -3)",
+    "example": "def value := math.abs(value: -3).",
     "params": [
       {
         "name": "value"
@@ -922,7 +922,7 @@
   "math:floor": {
     "heading": "math.floor",
     "description": "Rounds a number down to the nearest integer value.",
-    "example": "value := math.floor(value: 3.9)",
+    "example": "def value := math.floor(value: 3.9).",
     "params": [
       {
         "name": "value"
@@ -932,7 +932,7 @@
   "math:ceil": {
     "heading": "math.ceil",
     "description": "Rounds a number up to the nearest integer value.",
-    "example": "value := math.ceil(value: 3.1)",
+    "example": "def value := math.ceil(value: 3.1).",
     "params": [
       {
         "name": "value"
@@ -942,7 +942,7 @@
   "math:round": {
     "heading": "math.round",
     "description": "Rounds a number to the nearest integer value.",
-    "example": "value := math.round(value: 3.5)",
+    "example": "def value := math.round(value: 3.5).",
     "params": [
       {
         "name": "value"
@@ -952,19 +952,19 @@
   "math:pi": {
     "heading": "math.pi",
     "description": "Returns the pi constant.",
-    "example": "value := math.pi()",
+    "example": "def value := math.pi().",
     "params": []
   },
   "math:e": {
     "heading": "math.e",
     "description": "Returns Euler's number.",
-    "example": "value := math.e()",
+    "example": "def value := math.e().",
     "params": []
   },
   "math:random": {
     "heading": "math.random",
     "description": "Returns a random floating-point number between min and max.",
-    "example": "value := math.random(min: 0, max: 1)",
+    "example": "def value := math.random(min: 0, max: 1).",
     "params": [
       {
         "name": "min"
@@ -977,7 +977,7 @@
   "ml:sigmoid": {
     "heading": "ml.sigmoid",
     "description": "Applies the sigmoid activation function to one numeric value.",
-    "example": "value := ml.sigmoid(value: 0)",
+    "example": "def value := ml.sigmoid(value: 0).",
     "params": [
       {
         "name": "value"
@@ -987,7 +987,7 @@
   "ml:relu": {
     "heading": "ml.relu",
     "description": "Applies the ReLU activation function to one numeric value.",
-    "example": "value := ml.relu(value: score)",
+    "example": "def value := ml.relu(value: score).",
     "params": [
       {
         "name": "value"
@@ -997,7 +997,7 @@
   "ml:dot": {
     "heading": "ml.dot",
     "description": "Computes the dot product of two numeric arrays of equal length.",
-    "example": "score := ml.dot(left: [1, 2, 3], right: [4, 5, 6])",
+    "example": "def score := ml.dot(left: [1, 2, 3], right: [4, 5, 6]).",
     "params": [
       {
         "name": "left"
@@ -1010,7 +1010,7 @@
   "ml:meanSquaredError": {
     "heading": "ml.meanSquaredError",
     "description": "Computes mean squared error for two numeric arrays of equal length.",
-    "example": "loss := ml.meanSquaredError(left: [1, 2], right: [1, 3])",
+    "example": "def loss := ml.meanSquaredError(left: [1, 2], right: [1, 3]).",
     "params": [
       {
         "name": "left"
@@ -1023,7 +1023,7 @@
   "thread:createThread": {
     "heading": "thread.createThread",
     "description": "Creates a handle for running a method on an independent interpreter snapshot.",
-    "example": "t1 := thread.createThread(function: \"Worker\")",
+    "example": "def t1 := thread.createThread(function: \"Worker\").",
     "params": [
       {
         "name": "function"
@@ -1033,7 +1033,7 @@
   "thread:start": {
     "heading": "thread.start",
     "description": "Starts a Felidae thread handle and returns its lifecycle status.",
-    "example": "status := thread.start(thread: t1)",
+    "example": "def status := thread.start(thread: t1).",
     "params": [
       {
         "name": "thread"
@@ -1043,7 +1043,7 @@
   "thread:result": {
     "heading": "thread.result",
     "description": "Waits for a Felidae thread to finish and returns the worker method result.",
-    "example": "result := thread.result(thread: t1)",
+    "example": "def result := thread.result(thread: t1).",
     "params": [
       {
         "name": "thread"
@@ -1053,7 +1053,7 @@
   "thread:status": {
     "heading": "thread.status",
     "description": "Reads the current status of a Felidae thread handle.",
-    "example": "status := thread.status(thread: t1)",
+    "example": "def status := thread.status(thread: t1).",
     "params": [
       {
         "name": "thread"

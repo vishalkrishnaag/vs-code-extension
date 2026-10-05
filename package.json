@@ -2,7 +2,7 @@
   "name": "felidae-vscode",
   "displayName": "Felidae",
   "description": "Felidae .fx support with interpreter debugging, diagnostics, and language services.",
-  "version": "0.0.6",
+  "version": "0.2.2",
   "publisher": "local",
   "repository": {
     "type": "git",
@@ -20,7 +20,7 @@
   ],
   "activationEvents": [
     "onLanguage:felidae",
-    "onStartupFinished",
+    "workspaceContains:**/*.fx",
     "onDebugInitialConfigurations:felidae",
     "onDebugResolve:felidae"
   ],
@@ -62,7 +62,71 @@
       "files.associations": {
         "*.fx": "felidae"
       }
+
     },
+    "colors": [
+      { "id": "felidae.defFunction", "description": "def introducing a function (def f(...) =>).",
+        "defaults": { "dark": "#18f0d7", "light": "#0a8f80", "highContrast": "#18f0d7", "highContrastLight": "#006d60" } },
+      { "id": "felidae.defFact", "description": "def introducing a persistent fact (def Name(...).).",
+        "defaults": { "dark": "#f7a93f", "light": "#b86a00", "highContrast": "#f7a93f", "highContrastLight": "#8a4f00" } },
+      { "id": "felidae.defBinding", "description": "def introducing a binding or class field (def x := 1.).",
+        "defaults": { "dark": "#c4a2ff", "light": "#6b3fd1", "highContrast": "#c4a2ff", "highContrastLight": "#4f2aa8" } },
+      { "id": "felidae.blockLevel0", "description": "Outermost block opener and end under the cursor.",
+        "defaults": { "dark": "#ff8ec0", "light": "#c2185b", "highContrast": "#ff8ec0", "highContrastLight": "#8e0f40" } },
+      { "id": "felidae.blockLevel1", "description": "Second nesting level of the block highlight.",
+        "defaults": { "dark": "#7fd4ff", "light": "#0277bd", "highContrast": "#7fd4ff", "highContrastLight": "#01579b" } },
+      { "id": "felidae.blockLevel2", "description": "Third nesting level of the block highlight.",
+        "defaults": { "dark": "#f7c76b", "light": "#b26a00", "highContrast": "#f7c76b", "highContrastLight": "#7a4900" } },
+      { "id": "felidae.blockLevel3", "description": "Fourth nesting level of the block highlight (then colours repeat).",
+        "defaults": { "dark": "#a6e3a1", "light": "#2e7d32", "highContrast": "#a6e3a1", "highContrastLight": "#1b5e20" } },
+      { "id": "felidae.blockHighlightBackground", "description": "Background of the innermost block's opener and end.",
+        "defaults": { "dark": "#7f7f7f40", "light": "#7f7f7f33", "highContrast": "#7f7f7f66", "highContrastLight": "#7f7f7f4d" } }
+    ],
+    "keybindings": [
+      {
+        "command": "felidae.runCellAndAdvance",
+        "key": "shift+enter",
+        "when": "editorTextFocus && editorLangId == felidae && resourceScheme == file && !suggestWidgetVisible"
+      },
+      {
+        "command": "felidae.runCell",
+        "key": "ctrl+alt+enter",
+        "when": "editorTextFocus && editorLangId == felidae && resourceScheme == file"
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "felidae",
+        "required": ["command"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": ["run", "check"],
+            "description": "run executes the file; check prints parse diagnostics and symbols as JSON."
+          },
+          "file": {
+            "type": "string",
+            "description": "Path to the .fx file. Defaults to the active editor's file."
+          }
+        }
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "felidae",
+        "label": "Felidae interpreter errors",
+        "owner": "felidae",
+        "source": "felidae",
+        "fileLocation": ["autoDetect", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^error: (?:(.+?\\.fx): )?(.*?),? ?(?:at )?line (\\d+), column (\\d+)\\S*$",
+          "file": 1,
+          "message": 2,
+          "line": 3,
+          "column": 4
+        }
+      }
+    ],
     "breakpoints": [
       {
         "language": "felidae"
@@ -75,6 +139,16 @@
         "path": "./syntaxes/felidae.tmLanguage.json"
       }
     ],
+    "semanticTokenScopes": [
+      {
+        "language": "felidae",
+        "scopes": {
+          "felidaeDefBinding": ["keyword.declaration.variable.felidae"],
+          "felidaeDefFunction": ["keyword.declaration.function.felidae"],
+          "felidaeDefFact": ["keyword.declaration.struct.felidae"]
+        }
+      }
+    ],
     "snippets": [
       {
         "language": "felidae",
@@ -82,6 +156,17 @@
       }
     ],
     "commands": [
+      {
+        "command": "felidae.showOutput",
+        "title": "Felidae: Show Output"
+      },
+      { "command": "felidae.runCell", "title": "Felidae: Run Cell", "icon": "$(play)" },
+      { "command": "felidae.runCellAndAdvance", "title": "Felidae: Run Cell and Advance" },
+      { "command": "felidae.runCellsBelow", "title": "Felidae: Run Cell and Cells Below" },
+      { "command": "felidae.runAllCells", "title": "Felidae: Run All Cells", "icon": "$(run-all)" },
+      { "command": "felidae.debugCell", "title": "Felidae: Debug Cell", "icon": "$(debug-alt)" },
+      { "command": "felidae.stopCell", "title": "Felidae: Stop Running Cell" },
+      { "command": "felidae.clearCellResults", "title": "Felidae: Clear Cell Results" },
       {
         "command": "felidae.runMain",
         "title": "Felidae: Run",
@@ -148,6 +233,31 @@
     "configuration": {
       "title": "Felidae",
       "properties": {
+        "felidae.inlayHints.parameterNames": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the parameter name before each positional call argument (editor.inlayHints.enabled must allow hints)."
+        },
+        "felidae.cells.inlineResults": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a cell's result or error after its def line."
+        },
+        "felidae.cells.runTimeoutSeconds": {
+          "type": "number",
+          "default": 60,
+          "description": "Stop a cell's felidae process if it has not finished after this many seconds."
+        },
+        "felidae.autoInsertEnd": {
+          "type": "boolean",
+          "default": true,
+          "description": "After Enter on a block opener (def ... =>, class, for/while ... then, switch, try) that has no matching end, insert the end line below."
+        },
+        "felidae.endLabels": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a faint label after the `end` of the block under the cursor, naming the def, class, for, while, switch or try block it closes."
+        },
         "felidae.interpreterPath": {
           "type": "string",
           "default": "",

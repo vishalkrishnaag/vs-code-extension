@@ -19,7 +19,6 @@ const stub = path.resolve(__dirname, "vscode-stub.js");
 const originalResolve = Module._resolveFilename;
 Module._resolveFilename = function (request, ...rest) {
   if (request === "vscode") return stub;
-  if (/^vscode-languageclient/.test(request)) return path.resolve(__dirname, "lc-stub.js");
   return originalResolve.call(this, request, ...rest);
 };
 
@@ -127,18 +126,37 @@ console.log("explicit end blocks");
 {
   const text = [
     "class Person",
-    "    name: string",
-    "    greeting(prefix: string) =>",
-    "        return (message: prefix)",
+    "    def name: string.",
+    "    def greeting(prefix: string) =>",
+    "        (message: prefix).",
     "    end",
     "end",
-    "main() =>",
-    "    return (ok: true)",
+    "def main() =>",
+    "    (ok: true).",
     "end"
   ].join("\n");
   const found = regions(text, "Region");
   check(sameRanges(found, [[1, 6], [3, 5], [7, 9]]),
     "pairs nested class and method blocks with their explicit end lines",
+    JSON.stringify(found));
+}
+
+// --------------------------------------------------------------------------
+console.log("try/catch blocks");
+{
+  const text = [
+    "def guarded() =>",
+    "    try",
+    "        throw(kind: probe, message: \"failed\").",
+    "    catch error then",
+    "        error.message.",
+    "    end",
+    "    true.",
+    "end"
+  ].join("\n");
+  const found = regions(text, "Region");
+  check(sameRanges(found, [[1, 8], [2, 6]]),
+    "recognizes try/catch as one end-terminated block inside def",
     JSON.stringify(found));
 }
 

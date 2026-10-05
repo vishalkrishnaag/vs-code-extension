@@ -34,7 +34,7 @@ const previousLoad = Module._load;
 Module._load = function(name, parent, main) {
   if (name === 'vscode') return vscode;
   if (name === 'child_process') return processStub;
-  if (name === './languageClient' || name === './mlRanking') return {};
+  if (name === './mlRanking') return {};
   return previousLoad.call(this, name, parent, main);
 };
 const sourceDir = path.resolve(__dirname, '../src');

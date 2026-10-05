@@ -1,356 +1,123 @@
 {
   "Import": {
     "prefix": "import",
-    "body": [
-      "import \"${1:file.fx}\""
-    ],
-    "description": "Import another Felidae file"
+    "body": ["import \"${1:file.fx}\"."],
+    "description": "Import a Felidae source file"
   },
-  "Multi Import": {
-    "prefix": "imports",
-    "body": [
-      "import (\"${1:file-one.fx}\", \"${2:file-two.fx}\")"
-    ],
-    "description": "Import multiple Felidae files or module paths"
-  },
-  "Core Import": {
-    "prefix": "coreimport",
-    "body": [
-      "import \"${1|system,console,file,http,math,ml|}\""
-    ],
-    "description": "Import a builtin Felidae core library"
-  },
-  "Core Imports": {
-    "prefix": "coreimports",
-    "body": [
-      "import (\"${1|file,math,ml,system,console,http|}\", \"${2|math,ml,system,file,console,http|}\")"
-    ],
-    "description": "Import multiple builtin Felidae core libraries"
-  },
-  "Fact": {
+  "Persistent Fact": {
     "prefix": "fact",
-    "body": [
-      "${1:Predicate}(${2:name}: ${3:\"value\"})"
-    ],
-    "description": "Create a Felidae fact"
+    "body": ["def ${1:employee}(${2:id}: ${3:\"e1\"}, ${4:state}: ${5:active})."],
+    "description": "Declare a persistent fact seed"
   },
-  "Rule": {
-    "prefix": "rule",
-    "body": [
-      "${1:RuleName}(${2:input}: ${3:value}) =>",
-      "    ${4:Predicate}(${2}: ${3:value})"
-    ],
-    "description": "Create a Felidae rule"
+  "Immutable Binding": {
+    "prefix": "binding",
+    "body": ["def ${1:value}${2:: ${3:any}} := ${4:expression}."],
+    "description": "Declare an immutable interpreter binding"
   },
-  "Method Rule": {
-    "prefix": "method",
+  "Function": {
+    "prefix": "function",
     "body": [
-      "${1:isAdult}(${2:input}: ${3:Person}) =>",
-      "    ${4:p} := ${2:input}",
-      "    where ${4:p}.${5:age} >= ${6:18}",
-      "    return (",
-      "        ${7:name}: ${4:p}.${8:name}",
-      "    )"
-    ],
-    "description": "Create a method-style typed rule"
-  },
-  "Explicit End Method": {
-    "prefix": "methodend",
-    "body": [
-      "${1:methodName}(${2:input}: ${3:Type}) =>",
-      "    ${4:value} := ${2:input}",
-      "    return (${5:result}: ${4:value})",
+      "def ${1:name}(${2:value}: ${3:any}) =>",
+      "    ${4:expression}.",
       "end"
     ],
-    "description": "Create a method with an explicit end boundary"
+    "description": "Declare an implicit-result function"
+  },
+  "Main": {
+    "prefix": "main",
+    "body": [
+      "def main() =>",
+      "    ${1:expression}.",
+      "end"
+    ],
+    "description": "Declare the program entry function"
   },
   "Class": {
     "prefix": "class",
     "body": [
-      "class ${1:TypeName}",
-      "    ${2:field}: ${3:string}",
+      "class ${1:entity}",
+      "    key(${2:id}).",
+      "    def ${2:id}: ${3:string}.",
+      "    def ${4:enabled}: ${5:bool} := ${6:true}.",
       "end"
     ],
-    "description": "Create a class with an explicit end boundary"
+    "description": "Declare a RocksDB-backed fact schema"
   },
-  "Fallback Method": {
-    "prefix": "fallback",
+  "Conditional Expression": {
+    "prefix": "condition",
+    "body": ["${1:left} = ${2:right} then ${3:value} else ${4:fallback}."],
+    "description": "Create a conditional expression"
+  },
+  "For Loop": {
+    "prefix": "for",
     "body": [
-      "${1:RoleAccess}(${2:input}: ${3:Employee}) =>",
-      "    ${4:e} := ${2:input}",
-      "    ${4:e}.${5:role} == \"${6:Engineer}\"",
-      "    return (",
-      "        ${7:name}: ${4:e}.${8:name},",
-      "        ${9:status}: \"${10:engineering}\"",
-      "    )",
-      "else",
-      "    return (",
-      "        ${7:name}: ${4:e}.${8:name},",
-      "        ${9:status}: \"${11:default}\"",
-      "    )"
+      "for ${1:item} in ${2:values} then",
+      "    ${3:expression}.",
+      "end"
     ],
-    "description": "Create an ordered fallback method-style rule"
+    "description": "Iterate a list or lazy query cursor"
   },
-  "If Else": {
-    "prefix": "if",
+  "While Loop": {
+    "prefix": "while",
     "body": [
-      "if ${1:x} == ${2:value}",
-      "    return (${3:ok}: 1.0)",
-      "else",
-      "    return (${3:ok}: 0.0)"
+      "while ${1:condition} then",
+      "    ${2:expression}.",
+      "end"
     ],
-    "description": "Create an inline if/else conditional goal"
+    "description": "Repeat while a Boolean condition is true"
   },
-  "Main Method": {
-    "prefix": "main",
+  "Switch": {
+    "prefix": "switch",
     "body": [
-      "main(arguments: system.stdin) =>",
-      "    status := system.print(value: \"Felidae system running!\")",
-      "    return (",
-      "        status: status",
-      "    )"
+      "switch ${1:value}",
+      "case ${2:expected} then",
+      "    ${3:expression}.",
+      "default then",
+      "    ${4:fallback}.",
+      "end"
     ],
-    "description": "Create a direct-execution entry point"
+    "description": "Create an explicit-break switch block"
   },
-  "Extended Fact": {
-    "prefix": "extend",
+  "Try Catch": {
+    "prefix": "try",
     "body": [
-      "${1:Employee} extend ${2:Person}(",
-      "    ${3:name}: ${4:\"Ravi\"}",
-      ")"
+      "try",
+      "    ${1:expression}.",
+      "catch ${2:error} then",
+      "    ${3:error.message}.",
+      "end"
     ],
-    "description": "Create a fact that extends a parent fact/type"
+    "description": "Catch a Felidae runtime exception"
   },
-  "Lambda": {
-    "prefix": "lambda",
-    "body": [
-      "lambda(${1:Person}, ${2:p} => ${2:p}.${3:age} >= ${4:18})"
-    ],
-    "description": "Create a lambda filter or map expression"
-  },
-  "Then Pipeline": {
-    "prefix": "then",
-    "body": [
-      "${1:result} := ${2:StepOne}(${3:input}: ${4:value})",
-      "    then ${5:StepTwo}(${6:input}: system.result)",
-      "    then ${7:StepThree}(${8:input}: system.result)"
-    ],
-    "description": "Create a then pipeline using scoped system.result"
-  },
-  "Query": {
-    "prefix": "query",
-    "body": [
-      "? ${1:Predicate}(${2:name}: ${3:value})"
-    ],
-    "description": "Create a Felidae query"
-  },
-  "Named Argument": {
-    "prefix": "arg",
-    "body": [
-      "${1:name}: ${2:value}"
-    ],
-    "description": "Create a named argument"
-  },
-  "Tuple": {
-    "prefix": "tuple",
-    "body": [
-      "fn:tuple(first: ${1:\"hello\"}, second: ${2:\"world\"})"
-    ],
-    "description": "Create a tuple value"
-  },
-  "Map": {
-    "prefix": "map",
-    "body": [
-      "{${1:key}: ${2:value}}"
-    ],
-    "description": "Create a map value"
-  },
-  "Array": {
-    "prefix": "array",
-    "body": [
-      "[${1:value1}, ${2:value2}]"
-    ],
-    "description": "Create an array value"
-  },
-  "Module Call": {
-    "prefix": "modulecall",
-    "body": [
-      "${1:module}.${2:Function}(${3:args})"
-    ],
-    "description": "Call a module-qualified predicate"
-  },
-  "Assignment Goal": {
-    "prefix": "assign",
-    "body": [
-      "${1:result} := ${2:module}.${3:Function}(${4:args})"
-    ],
-    "description": "Capture the output of a goal with :="
-  },
-  "Output Binding Call": {
-    "prefix": "outbind",
-    "body": [
-      "${1:Method}(${2:input}: ${3:value}, ${4:result}: ${5:out})"
-    ],
-    "description": "Call a predicate and capture one of its return fields into a fresh variable"
-  },
-  "Throw Exception": {
+  "Throw": {
     "prefix": "throw",
-    "body": [
-      "throw(msg: \"${1:DivisionByZero}\")",
-      "error_reason == \"${1:DivisionByZero}\""
-    ],
-    "description": "Signal and check a Felidae exception reason"
+    "body": ["throw(kind: ${1:runtime}, message: ${2:\"failed\"})."],
+    "description": "Raise a structured exception"
   },
-  "Throw To Handler": {
-    "prefix": "throwhandler",
-    "body": [
-      "throw(msg: \"${1:thrown from module a}\", target: ${2:DivideFailureHandler})"
-    ],
-    "description": "Route a Felidae exception message to a handler rule"
+  "Bucket Query": {
+    "prefix": "query",
+    "body": ["${1:employee}.where(${2:active}: ${3:true})."],
+    "description": "Create a period-terminated RocksDB bucket query"
   },
-  "Grouped Or": {
-    "prefix": "groupor",
+  "Link": {
+    "prefix": "link",
     "body": [
-      "(${1:Predicate}(${2:name}: ${3:value}) |",
-      "${4:OtherPredicate}(${2:name}: ${3:value})),",
-      "${5:NextPredicate}(${2:name}: ${3:value})"
+      "Link(",
+      "    from: ${1:left},",
+      "    to: ${2:right},",
+      "    properties: {${3:kind}: ${4:connected}}",
+      ")."
     ],
-    "description": "Group OR branches before continuing with AND goals"
+    "description": "Create an instance graph link"
   },
-  "Field Access": {
-    "prefix": "access",
-    "body": [
-      "${1:value}.${2:field}"
-    ],
-    "description": "Access a field from a map value"
+  "Atom Predicate": {
+    "prefix": "isatom",
+    "body": ["is_atom(${1:value})."],
+    "description": "Test whether a value is a data atom"
   },
-  "Read File": {
-    "prefix": "fileread",
-    "body": [
-      "${1:text} := file.readFile(path: \"${2:data.txt}\")"
-    ],
-    "description": "Read a file through the native Felidae stdlib"
-  },
-  "Write File": {
-    "prefix": "filewrite",
-    "body": [
-      "${1:status} := file.writeFile(path: \"${2:data.txt}\", data: ${3:\"hello\"})"
-    ],
-    "description": "Write a file through the native Felidae stdlib"
-  },
-  "HTTP GET": {
-    "prefix": "httpget",
-    "body": [
-      "${1:body} := http.get(url: \"${2:https://example.com}\")"
-    ],
-    "description": "Fetch a URL through the native cpp-httplib-backed stdlib"
-  },
-  "HTTP Hello Server": {
-    "prefix": "httpserver",
-    "body": [
-      "${1:status} := http.serveStatic(host: \"${2:127.0.0.1}\", port: ${3:8080}, response: ${4:\"Hello World\"})"
-    ],
-    "description": "Start a blocking static-response server for GET, POST, PUT, and DELETE"
-  },
-  "Process Platform": {
-    "prefix": "platform",
-    "body": [
-      "${1:platform} := process.platform()"
-    ],
-    "description": "Read current OS platform for portable test scripts"
-  },
-  "CSV To Facts": {
-    "prefix": "csvfacts",
-    "body": [
-      "${1:rows} := csv.toFacts(data: ${2:csvText}, type: \"${3:School}\")"
-    ],
-    "description": "Parse CSV text into typed fact-like row maps through rapidcsv"
-  },
-  "CSV Parse": {
-    "prefix": "csvparse",
-    "body": [
-      "${1:rows} := csv.parse(data: ${2:csvText})"
-    ],
-    "description": "Parse CSV text into row maps through rapidcsv"
-  },
-  "CSV Facts File": {
-    "prefix": "csvfactsfile",
-    "body": [
-      "${1:factText} := csv.toFelidaeFacts(data: ${2:rows}, type: \"${3:School}\")",
-      "${4:status} := file.writeFile(path: \"${5:converted_csv_school.fx}\", data: ${1:factText}, mode: \"write\")"
-    ],
-    "description": "Convert selected row maps to Felidae fact text and write it with the file library"
-  },
-  "Read Lines": {
-    "prefix": "filelines",
-    "body": [
-      "${1:lines} := file.readLines(path: \"${2:data.txt}\")"
-    ],
-    "description": "Read a file as an array of lines"
-  },
-  "Thread Handle": {
-    "prefix": "thread",
-    "body": [
-      "${1:t1} := thread.createThread(function: \"${2:Worker}\")",
-      "${3:status} := thread.start(thread: ${1:t1})"
-    ],
-    "description": "Declare the future cooperative thread-handle flow"
-  },
-  "List Declaration": {
-    "prefix": "listdecl",
-    "body": [
-      "List(name: \"${1:items}\")",
-      "ListItem(list: \"${1:items}\", pos: 0, label: \"${2:first}\", value: ${3:\"first\"})"
-    ],
-    "description": "Declare a linked-list-style fact structure from core/list.fx"
-  },
-  "System Print": {
-    "prefix": "print",
-    "body": [
-      "system.print(value: ${1:data})"
-    ],
-    "description": "Print a value through the auto-imported system stdlib"
-  },
-  "Type Check": {
+  "Type": {
     "prefix": "type",
-    "body": [
-      "type(value: ${1:item}, name: ${2:TypeName})"
-    ],
-    "description": "Read the concrete runtime type of a value"
-  },
-  "Instance Of": {
-    "prefix": "instanceof",
-    "body": [
-      "instanceof(value: ${1:item}, type: ${2:Person})"
-    ],
-    "description": "Check whether a value is an instance of a fact/type"
-  },
-  "Math Function": {
-    "prefix": "mathfn",
-    "body": [
-      "${1:value} := math.${2|sqrt,pow,sin,cos,log,exp,abs,round,random|}(${3:value}: ${4:81})"
-    ],
-    "description": "Call a native Felidae math function"
-  },
-  "ML Dot": {
-    "prefix": "mldot",
-    "body": [
-      "${1:score} := ml.dot(left: [${2:1, 2, 3}], right: [${3:4, 5, 6}])"
-    ],
-    "description": "Compute a native dot product"
-  },
-  "Type Query All": {
-    "prefix": "factall",
-    "body": [
-      "${1:rows} := ${2:School}.all()"
-    ],
-    "description": "Read every currently loaded fact assignable to a fact type"
-  },
-  "Type Query Where": {
-    "prefix": "factfind",
-    "body": [
-      "${1:rows} := ${2:School}.where(${3:field}: ${4:value})"
-    ],
-    "description": "Read facts of a type whose named field equals a value"
+    "body": ["type(${1:value})."],
+    "description": "Return the concrete runtime type name"
   }
 }

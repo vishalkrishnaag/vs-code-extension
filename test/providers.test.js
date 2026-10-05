@@ -1,7 +1,7 @@
 const path=require("path"), fs=require("fs"), Module=require("module");
 const stub=path.resolve(__dirname, "vscode-stub.js");
 const orig=Module._resolveFilename;
-Module._resolveFilename=function(r,...a){ if(r==="vscode") return stub; if(/^vscode-languageclient/.test(r)) return require("path").resolve(require("path").resolve(__dirname, "lc-stub.js")); return orig.call(this,r,...a); };
+Module._resolveFilename=function(r,...a){ if(r==="vscode") return stub; return orig.call(this,r,...a); };
 const vscode=require(stub);
 vscode.DocumentHighlight=class{constructor(r,k){this.range=r;this.kind=k;}};
 vscode.DocumentHighlightKind={Text:"Text"};
@@ -26,16 +26,17 @@ let pass=0,fail=0;
 const chk=(n,a,e)=>{const A=JSON.stringify(a),E=JSON.stringify(e);
   if(A===E){pass++;console.log("  ok  ",n);}else{fail++;console.log("  FAIL",n,"\n     exp",E,"\n     act",A);}};
 
-const src1=`Employee(name: "Alice", role: "Engineer")
-Employee(name: "Bob", role: "Manager")
+const src1=`def Employee(name: "Alice", role: "Engineer").
+def Employee(name: "Bob", role: "Manager").
 
-HasRole(employee: e, role: string) =>
-    role == e.role
-    return
+def HasRole(employee: e, role: string) =>
+    role = e.role.
+end
 
-main() =>
-    x := HasRole(employee: "Alice", role: "Engineer")
-    return x`;
+def main() =>
+    def x := HasRole(employee: "Alice", role: "Engineer").
+    x.
+end`;
 const d=doc(src1);
 
 // "Employee" appears twice as idents; the string "Alice" must NOT count.
@@ -43,7 +44,7 @@ chk("occurrences of Employee", N.symbolOccurrences(d,"Employee").length, 2);
 chk("occurrences of Alice (inside strings only)", N.symbolOccurrences(d,"Alice").length, 0);
 chk("occurrences of role", N.symbolOccurrences(d,"role").length, 6);
 
-chk("identifierAt on Employee", N.identifierAt(d,new vscode.Position(0,3)).name, "Employee");
+chk("identifierAt on Employee", N.identifierAt(d,new vscode.Position(0,7)).name, "Employee");
 chk("Employee is top-level", N.isTopLevelSymbol(d,"Employee"), true);
 chk("HasRole is top-level", N.isTopLevelSymbol(d,"HasRole"), true);
 chk("x (local) is not top-level", N.isTopLevelSymbol(d,"x"), false);
@@ -53,19 +54,30 @@ chk("x (local) is not top-level", N.isTopLevelSymbol(d,"x"), false);
 // mandatory for every method now, so a document made entirely of `def`
 // declarations going undetected here is exactly the outline/go-to-
 // definition/completion regression that motivated this pattern's fix.
-const defDoc=doc(`def Greet(name: string) =>\n    return name`);
+const defDoc=doc(`def Greet(name: string) =>\n    name.\nend`);
 chk("def-prefixed method is top-level", N.isTopLevelSymbol(defDoc,"Greet"), true);
 
 const hl=new N.FelidaeDocumentHighlightProvider();
-chk("highlight count", hl.provideDocumentHighlights(d,new vscode.Position(0,3)).length, 2);
+chk("highlight count", hl.provideDocumentHighlights(d,new vscode.Position(0,7)).length, 2);
+
+const nestedBlocks=doc(`def main() =>
+    for value in [true] then
+        value.
+    end
+end`);
+const highlightedLines=(line,character)=>hl.provideDocumentHighlights(
+  nestedBlocks,new vscode.Position(line,character)).map(item=>item.range.start.line);
+chk("inner for highlights only its end", highlightedLines(1,6), [1,3]);
+chk("outer def highlights only its end", highlightedLines(0,1), [0,4]);
+chk("inner end highlights its for", highlightedLines(3,5), [1,3]);
 
 const rn=new N.FelidaeRenameProvider();
-chk("prepareRename returns range", !!rn.prepareRename(d,new vscode.Position(0,3)), true);
-let blocked=false; try{ rn.prepareRename(doc("def main() =>\n    system.print(value: 1)"),new vscode.Position(1,6)); }catch(e){ blocked=/builtin/.test(e.message); }
+chk("prepareRename returns range", !!rn.prepareRename(d,new vscode.Position(0,7)), true);
+let blocked=false; try{ rn.prepareRename(doc("def main() =>\n    system.print(value: 1).\nend"),new vscode.Position(1,6)); }catch(e){ blocked=/builtin/.test(e.message); }
 chk("rename of builtin is refused", blocked, true);
 
 const codeLensDocument = doc(`def main() =>
-    return 42
+    42.
 end`);
 const lenses = new C.FelidaeCodeLensProvider().provideCodeLenses(codeLensDocument);
 chk("main declaration gets run/debug lenses", lenses.map((lens) => lens.command.command), [

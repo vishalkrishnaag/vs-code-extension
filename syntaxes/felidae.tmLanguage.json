@@ -95,6 +95,18 @@
     "keywords": {
       "patterns": [
         {
+          "name": "keyword.declaration.function.felidae",
+          "match": "\\bdef\\b(?=\\s+[A-Za-z_][A-Za-z0-9_:.]*\\s*\\([^)]*\\)\\s*=>)"
+        },
+        {
+          "name": "keyword.declaration.variable.felidae",
+          "match": "\\bdef\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:)"
+        },
+        {
+          "name": "keyword.declaration.struct.felidae",
+          "match": "\\bdef\\b(?=\\s+[A-Za-z_][A-Za-z0-9_:.]*\\s*\\()"
+        },
+        {
           "name": "keyword.control.end.felidae",
           "match": "\\bend\\b"
         },

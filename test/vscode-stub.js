@@ -88,6 +88,10 @@ module.exports = {
   window: {
     activeTextEditor: undefined,
     onDidChangeActiveTextEditor: () => ({ dispose() {} }),
+    onDidChangeVisibleTextEditors: () => ({ dispose() {} }),
+    onDidChangeTextEditorSelection: () => ({ dispose() {} }),
+    visibleTextEditors: [],
+    createTextEditorDecorationType: () => ({ dispose() {} }),
     showErrorMessage() {}, showInformationMessage() {}, showWarningMessage() {},
     createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
   },
@@ -96,5 +100,6 @@ module.exports = {
     registerDebugConfigurationProvider: () => ({ dispose() {} }),
     registerDebugAdapterDescriptorFactory: () => ({ dispose() {} }),
   },
+  ThemeColor: class ThemeColor { constructor(id) { this.id = id; } },
   ProgressLocation: enumProxy,
 };
