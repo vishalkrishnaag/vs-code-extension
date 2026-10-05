@@ -226,6 +226,18 @@ export function buildCellExpression(cell: Cell, args = ""): string {
   }
 }
 
+// The generated function that returns a binding's value.
+export const RESULT_FUNCTION = "felidae_cell_result";
+
+// A bare query is parsed on its own, where a name bound by an earlier `def` is
+// only an atom (`felidae file.fx --query "total."` prints `total`, not 42);
+// inside a program the same name resolves to its value. So a binding cell is
+// read through a function appended to the file's own text, which is run with
+// `--stdin` (the file is the program, the file name is its logical name).
+export function bindingProgram(fileText: string, name: string): string {
+  return fileText.replace(/\s+$/, "") + "\n\ndef " + RESULT_FUNCTION + "() =>\n    " + name + ".\nend\n";
+}
+
 // Small stable hash, enough to tell whether a cell's source changed.
 export function hashText(text: string): number {
   let hash = 5381;

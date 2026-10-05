@@ -49,6 +49,9 @@ const suites = [
   { name: "signature help + completion", args: [path.join(HERE, "signature.test.js")] },
   { name: "editor features (inlay hints, selection, def kinds)", args: [path.join(HERE, "features.test.js")] },
   { name: "cells and cell runner", args: [path.join(HERE, "cells.test.js")] },
+  { name: "editing helpers (doc comments, period fix, unused locals)", args: [path.join(HERE, "editing.test.js")] },
+  { name: "quick menu", args: [path.join(HERE, "quickMenu.test.js")] },
+  { name: "interpreter lookup", args: [path.join(HERE, "interpreter.test.js")] },
   {
     name: "folding",
     args: [path.join(HERE, "folding.test.js"), ...(foldingCorpusFile ? [foldingCorpusFile] : [])]

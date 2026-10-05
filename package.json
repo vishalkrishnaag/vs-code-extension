@@ -2,7 +2,7 @@
   "name": "felidae-vscode",
   "displayName": "Felidae",
   "description": "Felidae .fx support with interpreter debugging, diagnostics, and language services.",
-  "version": "0.2.2",
+  "version": "0.3.2",
   "publisher": "local",
   "repository": {
     "type": "git",
@@ -61,26 +61,96 @@
     "configurationDefaults": {
       "files.associations": {
         "*.fx": "felidae"
+      },
+      "[felidae]": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.semanticHighlighting.enabled": true,
+        "editor.wordBasedSuggestions": "off",
+        "editor.defaultFormatter": "local.felidae-vscode"
       }
-
     },
     "colors": [
-      { "id": "felidae.defFunction", "description": "def introducing a function (def f(...) =>).",
-        "defaults": { "dark": "#18f0d7", "light": "#0a8f80", "highContrast": "#18f0d7", "highContrastLight": "#006d60" } },
-      { "id": "felidae.defFact", "description": "def introducing a persistent fact (def Name(...).).",
-        "defaults": { "dark": "#f7a93f", "light": "#b86a00", "highContrast": "#f7a93f", "highContrastLight": "#8a4f00" } },
-      { "id": "felidae.defBinding", "description": "def introducing a binding or class field (def x := 1.).",
-        "defaults": { "dark": "#c4a2ff", "light": "#6b3fd1", "highContrast": "#c4a2ff", "highContrastLight": "#4f2aa8" } },
-      { "id": "felidae.blockLevel0", "description": "Outermost block opener and end under the cursor.",
-        "defaults": { "dark": "#ff8ec0", "light": "#c2185b", "highContrast": "#ff8ec0", "highContrastLight": "#8e0f40" } },
-      { "id": "felidae.blockLevel1", "description": "Second nesting level of the block highlight.",
-        "defaults": { "dark": "#7fd4ff", "light": "#0277bd", "highContrast": "#7fd4ff", "highContrastLight": "#01579b" } },
-      { "id": "felidae.blockLevel2", "description": "Third nesting level of the block highlight.",
-        "defaults": { "dark": "#f7c76b", "light": "#b26a00", "highContrast": "#f7c76b", "highContrastLight": "#7a4900" } },
-      { "id": "felidae.blockLevel3", "description": "Fourth nesting level of the block highlight (then colours repeat).",
-        "defaults": { "dark": "#a6e3a1", "light": "#2e7d32", "highContrast": "#a6e3a1", "highContrastLight": "#1b5e20" } },
-      { "id": "felidae.blockHighlightBackground", "description": "Background of the innermost block's opener and end.",
-        "defaults": { "dark": "#7f7f7f40", "light": "#7f7f7f33", "highContrast": "#7f7f7f66", "highContrastLight": "#7f7f7f4d" } }
+      {
+        "id": "felidae.defFunction",
+        "description": "def introducing a function (def f(...) =>).",
+        "defaults": {
+          "dark": "#18f0d7",
+          "light": "#0a8f80",
+          "highContrast": "#18f0d7",
+          "highContrastLight": "#006d60"
+        }
+      },
+      {
+        "id": "felidae.defFact",
+        "description": "def introducing a persistent fact (def Name(...).).",
+        "defaults": {
+          "dark": "#f7a93f",
+          "light": "#b86a00",
+          "highContrast": "#f7a93f",
+          "highContrastLight": "#8a4f00"
+        }
+      },
+      {
+        "id": "felidae.defBinding",
+        "description": "def introducing a binding or class field (def x := 1.).",
+        "defaults": {
+          "dark": "#c4a2ff",
+          "light": "#6b3fd1",
+          "highContrast": "#c4a2ff",
+          "highContrastLight": "#4f2aa8"
+        }
+      },
+      {
+        "id": "felidae.blockLevel0",
+        "description": "Outermost block opener and end under the cursor.",
+        "defaults": {
+          "dark": "#ff8ec0",
+          "light": "#c2185b",
+          "highContrast": "#ff8ec0",
+          "highContrastLight": "#8e0f40"
+        }
+      },
+      {
+        "id": "felidae.blockLevel1",
+        "description": "Second nesting level of the block highlight.",
+        "defaults": {
+          "dark": "#7fd4ff",
+          "light": "#0277bd",
+          "highContrast": "#7fd4ff",
+          "highContrastLight": "#01579b"
+        }
+      },
+      {
+        "id": "felidae.blockLevel2",
+        "description": "Third nesting level of the block highlight.",
+        "defaults": {
+          "dark": "#f7c76b",
+          "light": "#b26a00",
+          "highContrast": "#f7c76b",
+          "highContrastLight": "#7a4900"
+        }
+      },
+      {
+        "id": "felidae.blockLevel3",
+        "description": "Fourth nesting level of the block highlight (then colours repeat).",
+        "defaults": {
+          "dark": "#a6e3a1",
+          "light": "#2e7d32",
+          "highContrast": "#a6e3a1",
+          "highContrastLight": "#1b5e20"
+        }
+      },
+      {
+        "id": "felidae.blockHighlightBackground",
+        "description": "Background of the innermost block's opener and end.",
+        "defaults": {
+          "dark": "#7f7f7f40",
+          "light": "#7f7f7f33",
+          "highContrast": "#7f7f7f66",
+          "highContrastLight": "#7f7f7f4d"
+        }
+      }
     ],
     "keybindings": [
       {
@@ -97,11 +167,16 @@
     "taskDefinitions": [
       {
         "type": "felidae",
-        "required": ["command"],
+        "required": [
+          "command"
+        ],
         "properties": {
           "command": {
             "type": "string",
-            "enum": ["run", "check"],
+            "enum": [
+              "run",
+              "check"
+            ],
             "description": "run executes the file; check prints parse diagnostics and symbols as JSON."
           },
           "file": {
@@ -117,7 +192,10 @@
         "label": "Felidae interpreter errors",
         "owner": "felidae",
         "source": "felidae",
-        "fileLocation": ["autoDetect", "${workspaceFolder}"],
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
         "pattern": {
           "regexp": "^error: (?:(.+?\\.fx): )?(.*?),? ?(?:at )?line (\\d+), column (\\d+)\\S*$",
           "file": 1,
@@ -137,15 +215,31 @@
         "language": "felidae",
         "scopeName": "source.felidae",
         "path": "./syntaxes/felidae.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.felidae.codeblock",
+        "path": "./syntaxes/felidae-markdown.injection.json",
+        "injectTo": [
+          "text.html.markdown"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.felidae": "felidae"
+        }
       }
     ],
     "semanticTokenScopes": [
       {
         "language": "felidae",
         "scopes": {
-          "felidaeDefBinding": ["keyword.declaration.variable.felidae"],
-          "felidaeDefFunction": ["keyword.declaration.function.felidae"],
-          "felidaeDefFact": ["keyword.declaration.struct.felidae"]
+          "felidaeDefBinding": [
+            "keyword.declaration.variable.felidae"
+          ],
+          "felidaeDefFunction": [
+            "keyword.declaration.function.felidae"
+          ],
+          "felidaeDefFact": [
+            "keyword.declaration.struct.felidae"
+          ]
         }
       }
     ],
@@ -160,13 +254,49 @@
         "command": "felidae.showOutput",
         "title": "Felidae: Show Output"
       },
-      { "command": "felidae.runCell", "title": "Felidae: Run Cell", "icon": "$(play)" },
-      { "command": "felidae.runCellAndAdvance", "title": "Felidae: Run Cell and Advance" },
-      { "command": "felidae.runCellsBelow", "title": "Felidae: Run Cell and Cells Below" },
-      { "command": "felidae.runAllCells", "title": "Felidae: Run All Cells", "icon": "$(run-all)" },
-      { "command": "felidae.debugCell", "title": "Felidae: Debug Cell", "icon": "$(debug-alt)" },
-      { "command": "felidae.stopCell", "title": "Felidae: Stop Running Cell" },
-      { "command": "felidae.clearCellResults", "title": "Felidae: Clear Cell Results" },
+      {
+        "command": "felidae.selectInterpreter",
+        "title": "Felidae: Select Interpreter"
+      },
+      {
+        "command": "felidae.openRepl",
+        "title": "Felidae: Open REPL"
+      },
+      {
+        "command": "felidae.sendToRepl",
+        "title": "Felidae: Send to REPL"
+      },
+      {
+        "command": "felidae.runCell",
+        "title": "Felidae: Run Cell",
+        "icon": "$(play)"
+      },
+      {
+        "command": "felidae.runCellAndAdvance",
+        "title": "Felidae: Run Cell and Advance"
+      },
+      {
+        "command": "felidae.runCellsBelow",
+        "title": "Felidae: Run Cell and Cells Below"
+      },
+      {
+        "command": "felidae.runAllCells",
+        "title": "Felidae: Run All Cells",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "felidae.debugCell",
+        "title": "Felidae: Debug Cell",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "felidae.stopCell",
+        "title": "Felidae: Stop Running Cell"
+      },
+      {
+        "command": "felidae.clearCellResults",
+        "title": "Felidae: Clear Cell Results"
+      },
       {
         "command": "felidae.runMain",
         "title": "Felidae: Run",
@@ -186,6 +316,22 @@
         "command": "felidae.formatDocument",
         "title": "Felidae: Format Document",
         "icon": "$(list-flat)"
+      },
+      {
+        "command": "felidae.checkWorkspace",
+        "title": "Felidae: Check All Felidae Files"
+      },
+      {
+        "command": "felidae.clearProblems",
+        "title": "Felidae: Clear Problems"
+      },
+      {
+        "command": "felidae.menu",
+        "title": "Felidae: Menu"
+      },
+      {
+        "command": "felidae.checkFile",
+        "title": "Felidae: Check This File"
       }
     ],
     "debuggers": [
@@ -267,6 +413,21 @@
           "type": "string",
           "default": "employee.where(active: true).",
           "description": "Default period-terminated bucket expression shown by Felidae: Run Query."
+        },
+        "felidae.check.run": {
+          "type": "string",
+          "enum": [
+            "onType",
+            "onSave",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Check an open file shortly after each edit (default).",
+            "Check an open file when it is opened or saved.",
+            "Never check automatically; use Check All Felidae Files."
+          ],
+          "default": "onType",
+          "description": "When the interpreter's parser checks open Felidae files."
         }
       }
     },
@@ -309,6 +470,11 @@
           "command": "felidae.formatDocument",
           "when": "resourceLangId == felidae",
           "group": "1_modification"
+        },
+        {
+          "command": "felidae.sendToRepl",
+          "when": "editorLangId == felidae && resourceScheme == file",
+          "group": "felidae@1"
         }
       ],
       "editor/title": [
@@ -323,7 +489,61 @@
           "group": "navigation@2"
         }
       ]
-    }
+    },
+    "walkthroughs": [
+      {
+        "id": "felidae.start",
+        "title": "Get started with Felidae",
+        "description": "Pick an interpreter, run code a def at a time, and catch problems early.",
+        "steps": [
+          {
+            "id": "interpreter",
+            "title": "Pick the interpreter",
+            "description": "Choose which felidae executable runs your code.\n[Select Interpreter](command:felidae.selectInterpreter)",
+            "media": {
+              "markdown": "walkthrough/interpreter.md"
+            },
+            "completionEvents": [
+              "onCommand:felidae.selectInterpreter"
+            ]
+          },
+          {
+            "id": "run",
+            "title": "Run and debug",
+            "description": "Run a whole file, or one def at a time with Shift+Enter.\n[Run Cell](command:felidae.runCell)",
+            "media": {
+              "markdown": "walkthrough/run.md"
+            },
+            "completionEvents": [
+              "onCommand:felidae.runCell",
+              "onCommand:felidae.runMain"
+            ]
+          },
+          {
+            "id": "repl",
+            "title": "Try things in the REPL",
+            "description": "Open the interpreter's own REPL and send code to it.\n[Open REPL](command:felidae.openRepl)",
+            "media": {
+              "markdown": "walkthrough/repl.md"
+            },
+            "completionEvents": [
+              "onCommand:felidae.openRepl"
+            ]
+          },
+          {
+            "id": "problems",
+            "title": "Find problems early",
+            "description": "Check every file in the workspace.\n[Check All Felidae Files](command:felidae.checkWorkspace)",
+            "media": {
+              "markdown": "walkthrough/problems.md"
+            },
+            "completionEvents": [
+              "onCommand:felidae.checkWorkspace"
+            ]
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "tsc -p ./ && node esbuild.js --production",

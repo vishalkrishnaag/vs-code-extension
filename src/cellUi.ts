@@ -8,7 +8,7 @@
 
 import * as path from "path";
 import * as vscode from "vscode";
-import { BlockPair, Cell, buildCellExpression, cellAtLine, defaultArguments, hashText, splitCells } from "./cells";
+import { BlockPair, Cell, RESULT_FUNCTION, bindingProgram, buildCellExpression, cellAtLine, defaultArguments, hashText, splitCells } from "./cells";
 import { CellRunner, describeCellRun } from "./cellRunner";
 import { CellMetrics, summarizeMetrics } from "./metrics";
 
@@ -200,7 +200,12 @@ class CellSession {
     const hash = this.sourceHash(document, cell);
     this.setResult(document, cell, { state: "running", expression, text: "", sourceHash: hash });
     const timeoutMs = this.timeoutMs(document);
-    const processArgs = [document.uri.fsPath, "--query", expression, "--metrics-json"];
+    // A binding is read through a generated function (see bindingProgram); every
+    // other cell is a plain --query on the file.
+    const readsBinding = cell.kind === "binding";
+    const processArgs = readsBinding
+      ? [document.uri.fsPath, "--stdin", "--query", RESULT_FUNCTION + "().", "--metrics-json"]
+      : [document.uri.fsPath, "--query", expression, "--metrics-json"];
     const commandLine = [interpreter, ...processArgs];
     this.host.log("info", "cell: " + commandLine.join(" "));
 
@@ -211,9 +216,13 @@ class CellSession {
         command: interpreter,
         args: processArgs,
         cwd: path.dirname(document.uri.fsPath),
-        timeoutMs
+        timeoutMs,
+        stdin: readsBinding ? bindingProgram(document.getText(), cell.name) : undefined
       });
       const described = describeCellRun(run, timeoutMs);
+      if (!described.ok && /--stdin is valid only with --check-json/.test(described.text)) {
+        described.text += "\nReading a binding needs a felidae build that can run a program from stdin (--stdin). Rebuild the interpreter.";
+      }
       result = { state: described.ok ? "ok" : "error", expression, text: described.text, elapsedMs: run.elapsedMs, metrics: run.metrics, sourceHash: hash };
     } finally {
       this.setPending(-1);

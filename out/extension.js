@@ -42,6 +42,10 @@ const path = __importStar(require("path"));
 const formatter_1 = require("./formatter");
 const ml = __importStar(require("./mlRanking"));
 const cellUi_1 = require("./cellUi");
+const editing_1 = require("./editing");
+const interpreterUi_1 = require("./interpreterUi");
+const quickMenu_1 = require("./quickMenu");
+const repl_1 = require("./repl");
 const semanticLegend = new vscode.SemanticTokensLegend(["variable", "method", "felidaeDefBinding", "felidaeDefFunction", "felidaeDefFact"], ["readonly"]);
 // Language keywords: never variables, never declaration names.
 const FELIDAE_KEYWORDS = new Set([
@@ -115,11 +119,8 @@ function runInTerminal(executablePath, args, cwd) {
     terminal.show();
     terminal.sendText(command);
 }
-function documentRange(document, line, start, end) {
+function documentRange(line, start, end) {
     return new vscode.Range(new vscode.Position(line, start), new vscode.Position(line, Math.max(end, start + 1)));
-}
-function makeDiagnostic(document, line, start, end, message, severity) {
-    return new vscode.Diagnostic(documentRange(document, line, start, end), message, severity);
 }
 // Every provider asks for the tokens of the same document; lexing is the
 // expensive part, so each (document, version) is lexed once and shared.
@@ -136,7 +137,6 @@ function lexDocument(document) {
 }
 function lexDocumentUncached(document) {
     const tokens = [];
-    const diagnostics = [];
     for (let lineIndex = 0; lineIndex < document.lineCount; lineIndex++) {
         const text = document.lineAt(lineIndex).text;
         let i = 0;
@@ -158,10 +158,8 @@ function lexDocumentUncached(document) {
                     }
                     i++;
                 }
-                if (i >= text.length) {
-                    diagnostics.push(makeDiagnostic(document, lineIndex, start, text.length, "Unterminated string literal.", vscode.DiagnosticSeverity.Error));
+                if (i >= text.length)
                     break;
-                }
                 i++;
                 tokens.push({ kind: "string", text: text.slice(start + 1, i - 1), line: lineIndex, start, end: i });
                 continue;
@@ -237,11 +235,10 @@ function lexDocumentUncached(document) {
                 i++;
                 continue;
             }
-            diagnostics.push(makeDiagnostic(document, lineIndex, i, i + 1, `Unexpected character '${ch}'.`, vscode.DiagnosticSeverity.Error));
             i++;
         }
     }
-    return { tokens, diagnostics };
+    return { tokens };
 }
 function findMatchingParen(tokens, lparenIndex) {
     let depth = 0;
@@ -434,7 +431,7 @@ class FelidaeDocumentLinkProvider {
             const target = importLinkTarget(document, item.value);
             if (!target)
                 return undefined;
-            return new vscode.DocumentLink(documentRange(document, item.line, item.start, item.end), target);
+            return new vscode.DocumentLink(documentRange(item.line, item.start, item.end), target);
         })
             .filter((link) => !!link);
     }
@@ -494,6 +491,16 @@ class FelidaeHoverProvider {
         markdown.appendMarkdown(`### ${resolved.label}\n\n`);
         markdown.appendMarkdown(`${resolved.detail}\n\n`);
         markdown.appendCodeblock(`${resolved.label}(${signature})`, "felidae");
+        // The `#` comment lines directly above the declaration are its documentation.
+        const declaration = declarationsOf(document).find((entry) => entry.name === resolved.label);
+        if (declaration) {
+            const lines = [];
+            for (let line = 0; line < document.lineCount; line++)
+                lines.push(document.lineAt(line).text);
+            const doc = (0, editing_1.docCommentAbove)(lines, document.positionAt(declaration.nameOffset).line);
+            if (doc.length > 0)
+                markdown.appendMarkdown(doc.join("  \n") + "\n\n");
+        }
         return new vscode.Hover(markdown);
     }
 }
@@ -510,7 +517,7 @@ class FelidaeDefinitionProvider {
             return builtin;
         const pattern = definitionPattern(name);
         const locations = [];
-        const files = await vscode.workspace.findFiles("**/*.fx", "**/{node_modules,build,out}/**", 200);
+        const files = await vscode.workspace.findFiles("**/*.fx", FX_EXCLUDE, 200);
         for (const file of files) {
             const candidate = await vscode.workspace.openTextDocument(file);
             for (let line = 0; line < candidate.lineCount; line++) {
@@ -617,18 +624,6 @@ function enclosingBlocks(pairs, line) {
     return pairs
         .filter((pair) => pair.openerLine <= line && pair.endLine >= line)
         .sort((a, b) => a.openerLine - b.openerLine);
-}
-// The innermost block that contains the line: the enclosing pair whose opener
-// is closest above it.
-function enclosingBlock(pairs, line) {
-    let best;
-    for (const pair of pairs) {
-        if (pair.openerLine > line || pair.endLine < line)
-            continue;
-        if (!best || pair.openerLine > best.openerLine)
-            best = pair;
-    }
-    return best;
 }
 const blockPairCache = new WeakMap();
 function cachedEndBlockPairs(document) {
@@ -1138,8 +1133,7 @@ function scheduleDefDecorations(document) {
 class FelidaeSemanticTokensProvider {
     provideDocumentSemanticTokens(document) {
         const builder = new vscode.SemanticTokensBuilder(semanticLegend);
-        const lexed = lexDocument(document);
-        const tokens = lexed.tokens;
+        const tokens = lexDocument(document).tokens;
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
             if (token.kind !== "ident" || token.text === "_")
@@ -1245,10 +1239,6 @@ function collectHeadParams(argsText) {
     }
     flush(argsText.length);
     return params;
-}
-// Name-only view of collectHeadParams, for the callers that only label fields.
-function collectHeadFields(argsText) {
-    return collectHeadParams(argsText).map((param) => param.name);
 }
 function normalizeGraphName(name) {
     return name.replace(/\./g, ":");
@@ -1466,7 +1456,7 @@ function completionsForScope(document, tokens, index) {
         add(name, vscode.CompletionItemKind.Module, "core library");
     }
     for (const key of Object.keys(builtinDocs)) {
-        if (key.includes(":"))
+        if (key.includes(":") || key === "lambda")
             continue;
         add(key, vscode.CompletionItemKind.Function, builtinDocs[key].heading);
     }
@@ -1564,8 +1554,7 @@ class FelidaeCompletionItemProvider {
             if (namespaceItems.length)
                 return namespaceItems;
         }
-        const lexed = lexDocument(document);
-        const tokens = lexed.tokens;
+        const tokens = lexDocument(document).tokens;
         const index = tokenIndexBefore(tokens, position);
         const items = new Map();
         // Keep named-argument completion active while its key is being typed
@@ -1729,13 +1718,16 @@ function isTopLevelSymbol(document, name) {
 }
 // The workspace file list is cached and only refreshed when a .fx file is
 // created or deleted (see the file watcher in activate).
+// Generated and dependency folders are never searched for Felidae sources
+// (build output and diagnostic probes live under build/).
+const FX_EXCLUDE = "**/{node_modules,build,out,.git}/**";
 let workspaceFileCache;
 function invalidateWorkspaceFiles() {
     workspaceFileCache = undefined;
 }
 async function felidaeFileUris() {
     if (!workspaceFileCache) {
-        workspaceFileCache = await vscode.workspace.findFiles("**/*.fx", "**/node_modules/**", 500);
+        workspaceFileCache = await vscode.workspace.findFiles("**/*.fx", FX_EXCLUDE, 500);
     }
     return workspaceFileCache;
 }
@@ -1888,10 +1880,11 @@ function isExecutableFile(candidate) {
 // "felidae" is the one interpreter binary this project builds - it reads
 // source.fx, parses it to an AST, and executes that AST directly; there is
 // no separate compiler or VM binary to run first (see README.md/code.md).
+// The interpreter for a file: the setting (or the workspace's .vscode/felidae.json),
+// FELIDAE_PATH, a build under the workspace or the file's folder and its parents
+// (release before debug, including build/debug/x64/Debug), then PATH.
 function resolveInterpreterPath(documentUri) {
-    const config = vscode.workspace.getConfiguration("felidae", documentUri);
-    return resolveReleaseExecutable(documentUri, workspaceExecutableSetting(documentUri, "interpreterPath") ??
-        (config.get("interpreterPath", "") || process.env.FELIDAE_PATH), "felidae");
+    return (0, interpreterUi_1.resolveInterpreterFor)(documentUri, workspaceExecutableSetting(documentUri, "interpreterPath")).path;
 }
 function workspaceExecutableSetting(documentUri, setting) {
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(documentUri);
@@ -1970,8 +1963,11 @@ async function ensureInterpreterInstalled(interpreterPath, label, settingsQuery 
         return true;
     log("error", label + " is missing or not executable: " + interpreterPath);
     const downloadLabel = "Download Felidae";
-    const choice = await vscode.window.showWarningMessage(`${label} is missing or is not executable: ${interpreterPath}`, downloadLabel, "Open Settings");
-    if (choice === downloadLabel) {
+    const choice = await vscode.window.showWarningMessage(`${label} is missing or is not executable: ${interpreterPath}`, "Select Interpreter", downloadLabel, "Open Settings");
+    if (choice === "Select Interpreter") {
+        await vscode.commands.executeCommand("felidae.selectInterpreter");
+    }
+    else if (choice === downloadLabel) {
         await vscode.env.openExternal(vscode.Uri.parse("https://github.com/xnvtserver/Felidae/releases"));
     }
     else if (choice === "Open Settings") {
@@ -2117,7 +2113,12 @@ function parseRuntimeCheckResult(document, stdout) {
             const endColumn = endLine === boundedLine
                 ? Math.min(Math.max(boundedColumn + 1, rawEndColumn), endText.length)
                 : Math.min(rawEndColumn, endText.length);
-            return new vscode.Diagnostic(new vscode.Range(new vscode.Position(boundedLine, boundedColumn), new vscode.Position(endLine, endColumn)), item.message ?? "Felidae AST diagnostic", severity);
+            const diagnostic = new vscode.Diagnostic(new vscode.Range(new vscode.Position(boundedLine, boundedColumn), new vscode.Position(endLine, endColumn)), item.message ?? "Felidae AST diagnostic", severity);
+            // The parser reports a missing period where it noticed (the start of what
+            // follows); the quick fix works out where the period belongs.
+            if (/^Expected '\./.test(diagnostic.message))
+                diagnostic.code = "expected-period";
+            return diagnostic;
         });
         return {
             diagnostics,
@@ -2162,7 +2163,7 @@ function formatRuntimeCheckMessage(text) {
     const factIteration = /^Fact type '([^']+)' is not implicitly iterable/.exec(message);
     if (factIteration) {
         const name = factIteration[1];
-        message = `Fact type '${name}' is not implicitly iterable here. Direct ${name}(...) declarations and named queries are supported, but ${name}(item) in a method body does not scan facts. Use lambda(${name}, item => ...) or iterate an explicit list/array.`;
+        message = `Fact type '${name}' is not implicitly iterable here. Direct ${name}(...) declarations and named queries are supported, but ${name}(item) in a method body does not scan facts. Query it with ${name}.where(...) or ${name}.all() and iterate the result.`;
     }
     else if (/^Module '.*' not found/.test(message)) {
         message = `${message}. Check the import path, native module name, or workspace-relative Felidae configuration.`;
@@ -2175,30 +2176,49 @@ function formatRuntimeCheckMessage(text) {
     }
     return { message, severity };
 }
+// Quick fixes: insert the period a statement is missing (the commonest syntax
+// error), and remove an unused one-line binding.
+//   code "expected-period"  the parser's own position; where the period goes is worked out
+//   code "missing-period"   a diagnostic whose range already ends where it goes (notebook cells)
+//   code "unused-binding"   a local that is never used
 class FelidaeCodeActionProvider {
     provideCodeActions(document, _range, context) {
         const actions = [];
+        const linesOf = () => {
+            const lines = [];
+            for (let line = 0; line < document.lineCount; line++)
+                lines.push(document.lineAt(line).text);
+            return lines;
+        };
         for (const diagnostic of context.diagnostics) {
-            const notIterable = /^Fact type '([^']+)' is not implicitly iterable/.exec(diagnostic.message);
-            if (!notIterable)
-                continue;
-            const factName = notIterable[1];
-            const line = diagnostic.range.start.line;
-            const lineText = document.lineAt(line).text;
-            const callPattern = new RegExp(`\\b${factName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\)`);
-            const callMatch = callPattern.exec(lineText);
-            if (!callMatch)
-                continue;
-            const itemName = callMatch[1];
-            const startChar = callMatch.index;
-            const endChar = callMatch.index + callMatch[0].length;
-            const replacement = `lambda(${factName}, ${itemName} => ${itemName})`;
-            const action = new vscode.CodeAction(`Rewrite as lambda(${factName}, ${itemName} => ...)`, vscode.CodeActionKind.QuickFix);
-            action.diagnostics = [diagnostic];
-            action.isPreferred = true;
-            action.edit = new vscode.WorkspaceEdit();
-            action.edit.replace(document.uri, new vscode.Range(new vscode.Position(line, startChar), new vscode.Position(line, endChar)), replacement);
-            actions.push(action);
+            if (diagnostic.code === "expected-period" || diagnostic.code === "missing-period") {
+                const at = diagnostic.code === "missing-period"
+                    ? { line: diagnostic.range.end.line, column: diagnostic.range.end.character }
+                    : (0, editing_1.periodInsertion)(linesOf(), diagnostic.range.start.line, diagnostic.range.start.character);
+                if (!at)
+                    continue;
+                const action = new vscode.CodeAction("Insert the missing '.'", vscode.CodeActionKind.QuickFix);
+                action.diagnostics = [diagnostic];
+                action.isPreferred = true;
+                action.edit = new vscode.WorkspaceEdit();
+                action.edit.insert(document.uri, new vscode.Position(at.line, at.column), ".");
+                actions.push(action);
+            }
+            else if (diagnostic.code === "unused-binding") {
+                const line = diagnostic.range.start.line;
+                const name = document.getText(diagnostic.range);
+                const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                // Only a whole statement on one line can be removed safely.
+                if (!new RegExp("^\\s*def\\s+" + escaped + "\\b.*\\.\\s*(#.*)?$").test(document.lineAt(line).text))
+                    continue;
+                const action = new vscode.CodeAction("Remove unused binding '" + name + "'", vscode.CodeActionKind.QuickFix);
+                action.diagnostics = [diagnostic];
+                action.edit = new vscode.WorkspaceEdit();
+                action.edit.delete(document.uri, line + 1 < document.lineCount
+                    ? new vscode.Range(line, 0, line + 1, 0)
+                    : new vscode.Range(line, 0, line, document.lineAt(line).text.length));
+                actions.push(action);
+            }
         }
         return actions;
     }
@@ -2683,22 +2703,90 @@ function activate(context) {
     // diagnostics stay until the new result replaces them, so the Problems total
     // never flickers to zero or shows a superseded result.
     const checkGeneration = new Map();
+    // Locals and parameters that are never used, faded and not counted as problems.
+    const unusedDiagnostics = vscode.languages.createDiagnosticCollection("felidae-unused");
+    context.subscriptions.push(unusedDiagnostics);
+    const publishUnused = (document) => {
+        const found = (0, editing_1.findUnusedLocals)(lexDocument(document).tokens, cachedEndBlockPairs(document).pairs);
+        unusedDiagnostics.set(document.uri, found.map((entry) => {
+            const diagnostic = new vscode.Diagnostic(new vscode.Range(entry.line, entry.start, entry.line, entry.end), "'" + entry.name + "' is never used", vscode.DiagnosticSeverity.Hint);
+            diagnostic.tags = [vscode.DiagnosticTag.Unnecessary];
+            diagnostic.source = "felidae";
+            if (entry.kind === "binding")
+                diagnostic.code = "unused-binding";
+            return diagnostic;
+        }));
+    };
+    // A check already done for this text and interpreter is not repeated (switching
+    // tabs asks for one every time).
+    const lastCheckStamp = new Map();
+    // Files whose problems came from "Check All Felidae Files": they stay listed
+    // after the file is closed, until it is checked again or deleted.
+    const workspaceChecked = new Set();
+    // felidae.check.run: "onType" (default), "onSave" or "off".
+    const checkMode = (document) => vscode.workspace.getConfiguration("felidae", document.uri).get("check.run", "onType");
     const refreshDiagnostics = (document, fromEdit = false) => {
         if (document.languageId !== "felidae")
             return;
         const key = document.uri.toString();
+        publishUnused(document);
+        const mode = checkMode(document);
+        if (mode === "off") {
+            diagnostics.delete(document.uri);
+            return;
+        }
+        if (fromEdit && mode !== "onType")
+            return;
+        const stamp = document.version + "|" + resolveInterpreterPath(document.uri);
+        if (lastCheckStamp.get(key) === stamp)
+            return;
+        lastCheckStamp.set(key, stamp);
         const generation = (checkGeneration.get(key) ?? 0) + 1;
         checkGeneration.set(key, generation);
         const version = document.version;
         void runtimeCheckDiagnostics(document).then((runtimeDiagnostics) => {
-            if (document.isClosed || document.version !== version || checkGeneration.get(key) !== generation)
+            if (document.isClosed || document.version !== version || checkGeneration.get(key) !== generation) {
+                lastCheckStamp.delete(key);
                 return;
+            }
             const published = dedupeDiagnostics(runtimeDiagnostics);
             diagnostics.set(document.uri, published);
             const count = (severity) => published.filter((item) => item.severity === severity).length;
             log("info", path.basename(document.uri.fsPath) + ": " + count(vscode.DiagnosticSeverity.Error) + " error(s), " +
                 count(vscode.DiagnosticSeverity.Warning) + " warning(s), " + count(vscode.DiagnosticSeverity.Information) + " info");
         });
+    };
+    // Check every .fx file in the workspace, one interpreter process at a time (a
+    // failing file is reported and the next one is still checked), like the
+    // project-wide diagnostics of Erlang LS and ElixirLS.
+    const checkWorkspace = async () => {
+        const uris = await vscode.workspace.findFiles("**/*.fx", FX_EXCLUDE, 2000);
+        if (uris.length === 0) {
+            void vscode.window.showInformationMessage("No .fx files found in the workspace.");
+            return;
+        }
+        const totals = { files: 0, errors: 0, warnings: 0 };
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "Checking Felidae files", cancellable: true }, async (progress, token) => {
+            for (const [index, uri] of uris.entries()) {
+                if (token.isCancellationRequested)
+                    break;
+                progress.report({ message: path.basename(uri.fsPath) + " (" + (index + 1) + "/" + uris.length + ")", increment: 100 / uris.length });
+                const document = await vscode.workspace.openTextDocument(uri);
+                const key = uri.toString();
+                const published = dedupeDiagnostics(await runtimeCheckDiagnostics(document));
+                workspaceChecked.add(key);
+                diagnostics.set(uri, published);
+                lastCheckStamp.set(key, document.version + "|" + resolveInterpreterPath(uri));
+                totals.files++;
+                totals.errors += published.filter((item) => item.severity === vscode.DiagnosticSeverity.Error).length;
+                totals.warnings += published.filter((item) => item.severity === vscode.DiagnosticSeverity.Warning).length;
+            }
+        });
+        log("info", "check all: " + totals.files + " file(s), " + totals.errors + " error(s), " + totals.warnings + " warning(s)");
+        void vscode.window.showInformationMessage("Checked " + totals.files + " Felidae file(s): " + totals.errors + " error(s), " + totals.warnings + " warning(s)." +
+            (totals.errors + totals.warnings > 0 ? " See the Problems panel." : ""));
+        if (totals.errors + totals.warnings > 0)
+            void vscode.commands.executeCommand("workbench.actions.view.problems");
     };
     const scheduleDiagnosticsRefresh = (document) => {
         if (document.languageId !== "felidae")
@@ -2724,7 +2812,7 @@ function activate(context) {
     // Status bar: shows the active Felidae file's error/warning count and opens
     // the Problems panel on click.
     const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
-    statusItem.command = "workbench.actions.view.problems";
+    statusItem.command = "felidae.menu";
     const refreshStatusItem = () => {
         const document = vscode.window.activeTextEditor?.document;
         if (!document || document.languageId !== "felidae") {
@@ -2742,7 +2830,8 @@ function activate(context) {
             totalWarnings += items.filter((item) => item.severity === vscode.DiagnosticSeverity.Warning).length;
         });
         statusItem.tooltip = path.basename(document.uri.fsPath) + ": " + errors + " error(s), " + warnings + " warning(s)\n" +
-            "All checked Felidae files: " + totalErrors + " error(s), " + totalWarnings + " warning(s)";
+            "All checked Felidae files: " + totalErrors + " error(s), " + totalWarnings + " warning(s)\n" +
+            "Click for the Felidae menu";
         statusItem.show();
     };
     refreshStatusItem();
@@ -2752,15 +2841,62 @@ function activate(context) {
         blockPairs: (document) => cachedEndBlockPairs(document).pairs,
         log
     });
+    const interpreterStatus = new interpreterUi_1.InterpreterStatus(context, (uri) => (uri ? workspaceExecutableSetting(uri, "interpreterPath") : undefined), () => {
+        // A different interpreter: every open file is checked again.
+        lastCheckStamp.clear();
+        for (const document of vscode.workspace.textDocuments)
+            refreshDiagnostics(document);
+    });
+    void interpreterStatus;
+    (0, repl_1.registerRepl)(context, {
+        resolveInterpreterPath,
+        ensureInterpreterInstalled: (interpreterPath) => ensureInterpreterInstalled(interpreterPath, "Felidae interpreter"),
+        blockPairs: (document) => cachedEndBlockPairs(document).pairs,
+        log: (level, message) => log(level, message)
+    });
     const fxWatcher = vscode.workspace.createFileSystemWatcher("**/*.fx");
     fxWatcher.onDidCreate(invalidateWorkspaceFiles);
     fxWatcher.onDidDelete(invalidateWorkspaceFiles);
+    fxWatcher.onDidDelete((uri) => {
+        diagnostics.delete(uri);
+        unusedDiagnostics.delete(uri);
+        workspaceChecked.delete(uri.toString());
+    });
     refreshEndDecorations();
     refreshDefDecorations();
     context.subscriptions.push(fxWatcher, ...blockStrongDecorations, ...blockSoftDecorations, ...Object.values(defDecorations), vscode.window.onDidChangeVisibleTextEditors(() => refreshDefDecorations()), vscode.workspace.onDidChangeTextDocument((event) => scheduleDefDecorations(event.document)), vscode.window.onDidChangeTextEditorSelection((event) => updateEndDecorations(event.textEditor)), vscode.window.onDidChangeVisibleTextEditors(() => refreshEndDecorations()), vscode.workspace.onDidChangeTextDocument((event) => refreshEndDecorations(event.document)), vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("felidae.endLabels"))
             refreshEndDecorations();
-    }), diagnostics, vscode.commands.registerCommand("felidae.showOutput", () => outputChannel?.show(true)), vscode.commands.registerCommand("felidae.runMain", runMain), vscode.commands.registerCommand("felidae.debugMain", debugMain), vscode.commands.registerCommand("felidae.runQuery", runQuery), vscode.commands.registerCommand("felidae.formatDocument", () => vscode.commands.executeCommand("editor.action.formatDocument")), vscode.workspace.onDidOpenTextDocument((document) => {
+        if (event.affectsConfiguration("felidae.check.run")) {
+            lastCheckStamp.clear();
+            for (const document of vscode.workspace.textDocuments)
+                refreshDiagnostics(document);
+        }
+    }), diagnostics, vscode.commands.registerCommand("felidae.checkWorkspace", checkWorkspace), vscode.commands.registerCommand("felidae.checkFile", () => {
+        const document = vscode.window.activeTextEditor?.document;
+        if (!document || document.languageId !== "felidae") {
+            void vscode.window.showInformationMessage("Open a Felidae file to check it.");
+            return;
+        }
+        lastCheckStamp.delete(document.uri.toString());
+        refreshDiagnostics(document);
+    }), vscode.commands.registerCommand("felidae.menu", async () => {
+        const document = vscode.window.activeTextEditor?.document;
+        const inFelidaeFile = !!document && document.languageId === "felidae";
+        const list = inFelidaeFile ? diagnostics.get(document.uri) ?? [] : [];
+        const picked = await vscode.window.showQuickPick((0, quickMenu_1.menuEntries)({
+            inFelidaeFile,
+            hasMain: inFelidaeFile && hasMainMethod(document),
+            errors: list.filter((item) => item.severity === vscode.DiagnosticSeverity.Error).length,
+            warnings: list.filter((item) => item.severity === vscode.DiagnosticSeverity.Warning).length
+        }), { title: "Felidae", placeHolder: "What do you want to do?" });
+        if (picked)
+            await vscode.commands.executeCommand(picked.command);
+    }), vscode.commands.registerCommand("felidae.clearProblems", () => {
+        diagnostics.clear();
+        workspaceChecked.clear();
+        lastCheckStamp.clear();
+    }), vscode.commands.registerCommand("felidae.showOutput", () => outputChannel?.show(true)), vscode.commands.registerCommand("felidae.runMain", runMain), vscode.commands.registerCommand("felidae.debugMain", debugMain), vscode.commands.registerCommand("felidae.runQuery", runQuery), vscode.commands.registerCommand("felidae.formatDocument", () => vscode.commands.executeCommand("editor.action.formatDocument")), vscode.workspace.onDidOpenTextDocument((document) => {
         refreshDiagnostics(document);
         refreshMainContext();
     }), vscode.workspace.onDidChangeTextDocument((event) => {
@@ -2770,7 +2906,10 @@ function activate(context) {
         refreshDiagnostics(document);
         refreshMainContext();
     }), vscode.workspace.onDidCloseTextDocument((document) => {
-        diagnostics.delete(document.uri);
+        if (!workspaceChecked.has(document.uri.toString()))
+            diagnostics.delete(document.uri);
+        unusedDiagnostics.delete(document.uri);
+        lastCheckStamp.delete(document.uri.toString());
         checkSymbolCache.delete(document.uri.toString());
         symbolSummaryCache.delete(document.uri.toString());
         const key = document.uri.toString();

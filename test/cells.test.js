@@ -94,6 +94,15 @@ check("native declarations are function cells with their own end",
   [["function", "math.pi", 1, 2], ["function", "math.pow", 3, 4]]);
 check("native declaration parameters are read", nativeCells[1].params.map((p) => p.name), ["base", "exponent"]);
 
+// a binding is read through a generated function appended to the file
+const fileText = "def total := 40 + 2.\n\ndef main() =>\n    total.\nend\n\n\n";
+check("a binding's program is the file plus a function that reads it",
+  cells.bindingProgram(fileText, "total"),
+  "def total := 40 + 2.\n\ndef main() =>\n    total.\nend\n\ndef felidae_cell_result() =>\n    total.\nend\n");
+check("the file's own lines keep their numbers (errors still point at the right line)",
+  cells.bindingProgram(fileText, "total").split("\n").slice(0, 5), fileText.split("\n").slice(0, 5));
+check("the result function is named once, here", cells.RESULT_FUNCTION, "felidae_cell_result");
+
 // robustness on odd input
 check("an empty file has no cells", cells.splitCells([""], []).length, 0);
 check("an unclosed def is a single-line cell, not a crash",
@@ -157,6 +166,11 @@ const options = (expression, extra = {}) => ({
     runner.run(options("quick.")).then(() => order.push("quick"))
   ]);
   check("a queued cell starts only after the one before it finished", order, ["slow", "quick"]);
+
+  const stdinRun = await runner.run({ command: process.execPath, args: [path.resolve(__dirname, "fake-stdin.js"), "--stdin"], cwd: __dirname, timeoutMs: 5000, stdin: "def a := 1.\n".repeat(30000) });
+  check("a program given on stdin arrives complete, and stdin is then closed", stdinRun.stdout.trim(), "stdin=" + "def a := 1.\n".repeat(30000).length + " args=--stdin");
+  const noStdin = await runner.run({ command: process.execPath, args: [path.resolve(__dirname, "fake-stdin.js")], cwd: __dirname, timeoutMs: 5000 });
+  check("a run without stdin input still gets a closed stdin, so nothing waits on it", noStdin.stdout.trim(), "stdin=0 args=");
 
   const hung = await new CellRunner().run(options("hang.", { timeoutMs: 150 }));
   check("a hung cell is stopped at the timeout", [hung.ok, hung.timedOut], [false, true]);

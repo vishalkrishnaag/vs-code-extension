@@ -3,6 +3,52 @@
 Language support for .fx files: highlighting, completion, snippets, folding,
 formatting, symbol navigation, diagnostics, Run, and Debug.
 
+## What's new in 0.3.2
+
+- **The Felidae menu.** Click **Felidae** in the status bar (or run *Felidae: Menu*) for everything in one
+  list: Run and Debug (for a file with `main`), run the def under the cursor or all defs, open the REPL,
+  check this file or every file, the Problems panel with this file's counts, select the interpreter, show the log.
+- **Felidae: Check This File** asks the interpreter's parser again now (the automatic check skips a file
+  whose text has not changed).
+
+## What's new in 0.3.1
+
+- **Check All Felidae Files** checks every `.fx` file in the workspace (not `build/`, `out/`, `node_modules/`),
+  one interpreter process at a time, and lists the problems in the Problems panel. A file that fails is
+  reported and the next is still checked. They stay listed after a file is closed; *Clear Problems* empties the list.
+- **`felidae.check.run`** chooses when open files are checked: `onType` (default), `onSave` or `off`.
+- **Getting Started walkthrough** (Welcome page, or *Help: Open Walkthrough*): interpreter, run and debug, REPL, problems.
+- **Fenced `felidae` code blocks in Markdown** are highlighted.
+- **Editor defaults for Felidae files:** 4-space indent, semantic highlighting on, word-based suggestions off,
+  this extension as the formatter. Override them under `[felidae]` in your settings.
+- Workspace search (symbols, references, go to definition of library names) skips `build/` like the checks do.
+- Removed code that was never read: lexical diagnostics that the interpreter's check had replaced.
+
+## What's new in 0.3.0
+
+Editing an interpreted language, where the loop is edit, try, fix:
+
+- **Interpreter picker and status.** *Felidae: Select Interpreter* lists the builds it finds
+  (workspace folders, the file's folder and its parents, `build/debug/x64/Debug`, `build/release`,
+  `dist/bin`, `PATH`), lets you browse, or clears the setting. A status bar item shows which
+  felidae a file will use and its version, with a warning when none is found or when the build
+  cannot run a program from stdin. Before this, a debug build was never found without a manual setting.
+- **REPL.** *Felidae: Open REPL* starts the interpreter's own `felidae --repl` in a terminal, in the
+  file's folder (it reads `./init.fx`). *Felidae: Send to REPL* (also in the editor's right-click
+  menu) sends the selection, else the `def` block under the cursor, else the current line. The REPL
+  is the interpreter's normal interactive mode in a terminal you own: no session is kept, and while it
+  is open it holds the project's database, so a cell run on the same project reports the lock error.
+- **Quick fix: insert the missing `.`**, the commonest syntax error. The parser reports it where it
+  noticed (the start of what follows); the fix puts the period at the end of the statement.
+- **Unused locals and parameters** are shown faded (an editor hint, not counted as a problem), with a
+  quick fix to remove an unused one-line binding. A name starting with `_` is taken as deliberate, and
+  any other mention of a name counts as a use, so it errs on the side of staying quiet.
+- **Hover shows the `#` comment lines directly above a function** as its documentation.
+- **Fewer checks:** a check already done for the same text and interpreter is not repeated (switching
+  tabs used to start one every time). The interpreter's check itself takes about 6 ms; almost all of the
+  ~60 ms is Windows starting a process.
+- `lambda` is no longer suggested: not in completions, quick fixes or error advice.
+
 ## What's new in 0.2.0
 
 - **Run and Debug on every def, notebook style.** Each top-level `def` and
@@ -13,7 +59,9 @@ formatting, symbol navigation, diagnostics, Run, and Debug.
   Ctrl+Alt+Enter runs without moving; *Run All Cells* and *Run Cell and Cells
   Below* run in order and stop at the first failure.
   - A function with parameters asks for its arguments (remembering the last ones).
-  - A binding shows its value; a fact or class shows its rows (`Name.all()`).
+  - A binding shows its value (read through a generated function run with `--stdin`, because a
+    bare `--query "name."` prints the atom `name`; this needs a felidae build with `--stdin`
+    runs); a fact or class shows its rows (`Name.all()`).
     Facts are persistent, so running one only reads them.
   - Each cell is its own ordinary process, `felidae file.fx --query "f(a: 1)."`,
     and ends when that process ends. Nothing stays running between cells and nothing

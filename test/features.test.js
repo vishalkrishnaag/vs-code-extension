@@ -8,6 +8,9 @@ Module._resolveFilename = function (r, ...a) { if (r === "vscode") return stub; 
 const vscode = require(stub);
 vscode.InlayHint = class { constructor(position, label, kind) { Object.assign(this, { position, label, kind }); } };
 vscode.InlayHintKind = { Parameter: 2 };
+vscode.WorkspaceEdit = class { constructor() { this.edits = []; }
+  insert(uri, position, text) { this.edits.push(["insert", position.line, position.character, text]); }
+  delete(uri, range) { this.edits.push(["delete", range.start.line, range.start.character, range.end.line, range.end.character]); } };
 vscode.SelectionRange = class { constructor(range, parent) { this.range = range; this.parent = parent; } };
 vscode.Range = class {
   constructor(a, b, c, d) {
@@ -18,7 +21,7 @@ vscode.Range = class {
 
 const EXT = path.resolve(__dirname, "..", "out", "extension.js");
 const src = fs.readFileSync(EXT, "utf8") + `
-module.exports.__f = { FelidaeInlayHintsProvider, FelidaeSelectionRangeProvider, selectionChain, endBlockPairs, enclosingBlock, openerNeedsEnd, isBlockOpenerLine, scopedOccurrences, symbolOccurrences, dedupeDiagnostics, diagnosticPositionInMessage, classifyDefs, enclosingBlocks, lexDocument, isTopLevelSymbol };`;
+module.exports.__f = { FelidaeInlayHintsProvider, FelidaeSelectionRangeProvider, selectionChain, endBlockPairs, openerNeedsEnd, isBlockOpenerLine, scopedOccurrences, symbolOccurrences, dedupeDiagnostics, diagnosticPositionInMessage, classifyDefs, enclosingBlocks, lexDocument, isTopLevelSymbol, FelidaeCodeActionProvider };`;
 const mod = new Module(EXT); mod.filename = EXT; mod.paths = Module._nodeModulePaths(path.dirname(EXT));
 mod._compile(src, EXT);
 const F = mod.exports.__f;
@@ -74,11 +77,11 @@ const lineSpans = chain.map(([a, b]) => b - a);
 check("selection ranges only ever grow", lineSpans.every((v, i) => i === 0 || v >= lineSpans[i - 1]), true);
 check("outermost selection is the whole main block", chain[chain.length - 1], [4, 11]);
 check("innermost enclosing block of a body line is the for loop",
-  (() => { const p = F.enclosingBlock(F.endBlockPairs(program.split("\n")), 9); return [p.openerLine, p.endLine]; })(), [8, 10]);
+  (() => { const p = F.enclosingBlocks(F.endBlockPairs(program.split("\n")), 9).pop(); return [p.openerLine, p.endLine]; })(), [8, 10]);
 check("an end line selects its own block, not the parent",
-  (() => { const p = F.enclosingBlock(F.endBlockPairs(program.split("\n")), 10); return [p.openerLine, p.endLine]; })(), [8, 10]);
+  (() => { const p = F.enclosingBlocks(F.endBlockPairs(program.split("\n")), 10).pop(); return [p.openerLine, p.endLine]; })(), [8, 10]);
 check("a line outside every block selects nothing",
-  F.enclosingBlock(F.endBlockPairs(program.split("\n")), 0), undefined);
+  F.enclosingBlocks(F.endBlockPairs(program.split("\n")), 0), []);
 
 // --- grammar: three kinds of def
 const grammar = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "syntaxes", "felidae.tmLanguage.json"), "utf8"));
@@ -204,6 +207,32 @@ check("references to a global from inside a function span the whole file",
   [...new Set(F.scopedOccurrences(bd, "limit", new vscode.Position(4, 9)).map((r) => r.start.line))], [0, 4, 7]);
 check("a local keeps to its own function",
   [...new Set(F.scopedOccurrences(bd, "local", new vscode.Position(3, 9)).map((r) => r.start.line))], [3]);
+
+// --- quick fixes
+const fixes = (text, diagnostics) => {
+  const document = doc(text);
+  return new F.FelidaeCodeActionProvider().provideCodeActions(document, undefined, { diagnostics })
+    .map((action) => ({ title: action.title, edits: action.edit.edits }));
+};
+const at = (line, column, endLine = line, endColumn = column + 1) => ({
+  start: new vscode.Position(line, column), end: new vscode.Position(endLine, endColumn)
+});
+check("an 'Expected .' error at the start of the next statement is fixed at the end of the previous line",
+  fixes("def a := 1\ndef b := 2.", [{ code: "expected-period", range: at(1, 0), message: "Expected '.' after global binding" }]),
+  [{ title: "Insert the missing '.'", edits: [["insert", 0, 10, "."]] }]);
+check("a comment after the statement does not move the period",
+  fixes("def a := 1  # one\n\ndef b := 2.", [{ code: "expected-period", range: at(2, 0), message: "Expected '.'" }])[0].edits,
+  [["insert", 0, 10, "."]]);
+check("a notebook-style diagnostic already ends where the period goes",
+  fixes("def a := 1", [{ code: "missing-period", range: at(0, 9, 0, 10), message: "Expected '.' after global binding" }])[0].edits,
+  [["insert", 0, 10, "."]]);
+check("an unrelated diagnostic gets no fix", fixes("def a := 1", [{ code: "other", range: at(0, 0), message: "something" }]), []);
+const unusedSrc = "def f(a: number) =>\n    def temp := a + 1.\n    a.\nend";
+check("an unused one-line binding can be removed (the whole line)",
+  fixes(unusedSrc, [{ code: "unused-binding", range: at(1, 8, 1, 12), message: "'temp' is never used" }]),
+  [{ title: "Remove unused binding 'temp'", edits: [["delete", 1, 0, 2, 0]] }]);
+check("a binding that spans lines is not removed automatically",
+  fixes("def f() =>\n    def temp := g(\n        1).\n    2.\nend", [{ code: "unused-binding", range: at(1, 8, 1, 12), message: "'temp' is never used" }]), []);
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -17,6 +17,8 @@ export interface CellRunOptions {
   args: string[];
   cwd: string;
   timeoutMs: number;
+  // Written to the process's stdin, which is then closed.
+  stdin?: string;
 }
 
 export interface CellRunResult {
@@ -89,6 +91,10 @@ export class CellRunner {
         timedOut = true;
         child.kill();
       }, options.timeoutMs);
+      // A process that exits without reading stdin (bad arguments) closes the
+      // pipe; that is its failure to report, not ours.
+      child.stdin.on("error", () => undefined);
+      child.stdin.end(options.stdin ?? "");
       child.stdout.on("data", (data: Buffer) => (stdout += data.toString()));
       child.stderr.on("data", (data: Buffer) => (stderr += data.toString()));
       child.on("error", (error: Error) => {
