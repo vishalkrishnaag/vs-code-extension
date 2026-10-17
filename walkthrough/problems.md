@@ -4,4 +4,4 @@ Open files are checked as you type, by the interpreter's own parser, so the squi
 Change that with the **felidae.check.run** setting: `onType`, `onSave` or `off`.
 
 **Check All Felidae Files** checks every `.fx` file in the workspace, one at a time, and lists the problems in the Problems panel.
-Press the lightbulb on a squiggle for quick fixes, such as inserting a missing `.`.
+Press the lightbulb on a squiggle for quick fixes, such as adding the `end` a conditional is missing.

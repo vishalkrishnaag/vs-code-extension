@@ -20,15 +20,15 @@ const { execFileSync } = require("child_process");
 const fs = require("fs");
 
 const HERE = __dirname;
-const REPO_ROOT = path.resolve(HERE, "..", "..");
+const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
 
 function corpusFiles() {
   const files = [];
-  for (const dir of ["examples", "v2_examples"]) {
+  for (const dir of ["tests", "examples"]) {
     const full = path.join(REPO_ROOT, dir);
     if (!fs.existsSync(full)) continue;
     for (const name of fs.readdirSync(full)) {
-      if (name.endsWith(".fx")) files.push(path.join(full, name));
+      if (name.endsWith(".fx") && !name.startsWith("invalid")) files.push(path.join(full, name));
     }
   }
   return files;

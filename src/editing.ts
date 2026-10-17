@@ -4,7 +4,7 @@
 
 // The `#` comment lines directly above `line` (no blank line between), without
 // the `#`, as one paragraph per original line. Empty when there is none.
-/** `def` (named arguments) or `define` (positional arguments): the keywords that declare a function. */
+/** `def` or `define`: the keywords that declare a function. */
 export function isDefWord(text: string | undefined): boolean {
   return text === "def" || text === "define";
 }
@@ -33,23 +33,11 @@ function codeOf(line: string): string {
   return line;
 }
 
-// "Expected '.'" is reported where the parser noticed: the start of whatever
-// follows the statement. The missing period belongs at the end of the last real
-// line (or, mid-line, just before that position). Returns where to insert it.
-export function periodInsertion(
-  lines: readonly string[],
-  diagnosticLine: number,
-  diagnosticColumn: number
-): { line: number; column: number } | undefined {
-  if (diagnosticColumn > 0) {
-    const before = lines[diagnosticLine].slice(0, diagnosticColumn).replace(/\s+$/, "");
-    return before === "" ? undefined : { line: diagnosticLine, column: before.length };
-  }
-  for (let index = Math.min(diagnosticLine, lines.length) - 1; index >= 0; index--) {
-    const code = codeOf(lines[index]).replace(/\s+$/, "");
-    if (code.trim() !== "") return { line: index, column: code.length };
-  }
-  return undefined;
+// "A conditional ends with 'end': add it after the last branch at line L, column C" names the exact place (one-based)
+// the missing `end` belongs; returns it zero-based, or undefined for any other message.
+export function conditionalEndInsertion(message: string): { line: number; column: number } | undefined {
+  const found = /^A conditional ends with 'end'.* at line (\d+), column (\d+)/.exec(message);
+  return found ? { line: Number(found[1]) - 1, column: Number(found[2]) - 1 } : undefined;
 }
 
 export interface EditToken {

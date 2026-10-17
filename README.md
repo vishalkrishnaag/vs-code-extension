@@ -4,6 +4,17 @@ Language support for .fx files: highlighting, completion, snippets, folding,
 formatting, symbol navigation, diagnostics, Run, Debug, and a REPL for the Felidae compiler (felidae runs a program
 by compiling it to JVM classes).
 
+## What's new in 0.5.0
+
+- **The new syntax.** Imports as in Java (`import java.util.ArrayList`, `import java.util.*`, `import com.acme.Box`),
+  `package com.acme`, calls without parentheses (`print "a", 1`), positional or named arguments for any function,
+  conditionals that end with `end`, and statements that end at the line break (no closing `.`). Highlighting,
+  snippets, folding and the formatter (conditional blocks) follow it.
+- **Type errors in the editor.** `felidae --check-json` now type-checks the program (unknown classes, mismatched
+  types, a package that does not match its folder), not only the syntax.
+- **Debugging** finds the sources of classes in packages (`com.acme.app`).
+- The quick fix for a missing `.` is replaced by one for a missing conditional `end`.
+
 ## What's new in 0.4.0
 
 The extension follows the Java compiler (`felidae` compiles a program to JVM class files and runs them).
@@ -19,7 +30,7 @@ The extension follows the Java compiler (`felidae` compiles a program to JVM cla
   because `--query` no longer exists.
 - **REPL.** *Open REPL* starts `felidae-repl`: it asks whether to append (all code is kept in `repl.fx` and the whole
   file runs each time) or not (each input replaces the file).
-- **Language.** PascalCase types and generics, `define` (positional arguments), `private class`, `static class`, `new`, `@mixfix`, `@override`, `Link`,
+- **Language.** PascalCase types and generics, `define` (Java-style functions), `private class`, `static class`, `new`, `@mixfix`, `@override`, `Link`,
   `Unlink`; new snippets; new completion docs for the builtins and class members; the Gradle layout
   (`build/java/cli/install/felidae/bin/felidae`) is found automatically.
 - **Removed:** the ranking models (trained on the old language) and the generators for the old library list.
@@ -59,8 +70,8 @@ Editing an interpreted language, where the loop is edit, try, fix:
   menu) sends the selection, else the `def` block under the cursor, else the current line. The REPL
   is the interpreter's normal interactive mode in a terminal you own: no session is kept, and while it
   is open it holds the project's database, so a cell run on the same project reports the lock error.
-- **Quick fix: insert the missing `.`**, the commonest syntax error. The parser reports it where it
-  noticed (the start of what follows); the fix puts the period at the end of the statement.
+- **Quick fix: add the missing `end`** to a conditional, the commonest syntax error now that a line break ends a
+  statement. The parser names the exact place, and the fix inserts the `end` there.
 - **Unused locals and parameters** are shown faded (an editor hint, not counted as a problem), with a
   quick fix to remove an unused one-line binding. A name starting with `_` is taken as deliberate, and
   any other mention of a name counts as a use, so it errs on the side of staying quiet.

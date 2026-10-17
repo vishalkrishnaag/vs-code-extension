@@ -91,7 +91,11 @@
       "patterns": [
         {
           "name": "keyword.control.import.Felidae",
-          "match": "\\bimport\\b"
+          "match": "\\b(?:import|package)\\b"
+        },
+        {
+          "name": "entity.name.type.import.felidae",
+          "match": "(?<=\\bimport\\s)[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*(?:\\.\\*)?"
         }
       ]
     },

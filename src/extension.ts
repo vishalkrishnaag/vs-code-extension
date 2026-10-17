@@ -8,7 +8,7 @@ import {
 } from "./formatter";
 import * as ml from "./mlRanking";
 import { registerCells } from "./cellUi";
-import { docCommentAbove, findUnusedLocals, isDefWord, periodInsertion } from "./editing";
+import { docCommentAbove, findUnusedLocals, isDefWord, conditionalEndInsertion } from "./editing";
 import { InterpreterStatus, resolveInterpreterFor } from "./interpreterUi";
 import { menuEntries } from "./quickMenu";
 import { registerRepl } from "./repl";
@@ -89,7 +89,7 @@ const semanticLegend = new vscode.SemanticTokensLegend(
 
 // Language keywords: never variables, never declaration names.
 const FELIDAE_KEYWORDS = new Set([
-  "def", "define", "private", "static", "class", "extends", "index", "key", "else", "then", "end",
+  "def", "define", "import", "package", "private", "static", "class", "extends", "index", "key", "else", "then", "end",
   "for", "in", "while", "switch", "case", "default", "break", "continue",
   "try", "catch", "new", "this", "super", "and", "or", "not", "nil", "true", "false"
 ]);
@@ -650,6 +650,13 @@ function endBlockPairs(lines: readonly string[]): EndBlockPair[] {
       stack.push({ line, start: opener.index + opener[0].lastIndexOf(opener[1]), length: opener[1].length });
       continue;
     }
+    // A conditional whose branches start on the next line owns an `end` too: `x > 0 then` ... `end`. The `then` of
+    // else/catch/case/default lines continues the surrounding block instead.
+    const conditional = /\bthen\s*(?:#.*)?$/.exec(text);
+    if (conditional && !/^\s*(?:else|catch|case|default)\b/.test(text) && !opener) {
+      stack.push({ line, start: conditional.index, length: 4 });
+      continue;
+    }
     const closer = /^\s*(end)\b/.exec(text);
     if (!closer) continue;
     const start = stack.pop();
@@ -769,8 +776,7 @@ class FelidaeFoldingRangeProvider implements vscode.FoldingRangeProvider {
     // methods collapsed into one region the same way.
     const startsTopLevel = (line: string) =>
       /^(?:(?:def|define)[ \t]+)?[A-Za-z_][A-Za-z0-9_:.]*(?:[ \t]+extend[ \t]+[A-Za-z_][A-Za-z0-9_]*)?[ \t]*\(/.test(line) ||
-      /^import\b/.test(line) ||
-      /^[A-Za-z_][A-Za-z0-9_]*[ \t]*:=/.test(line);
+      /^(?:import|package|class|static|private|new)\b/.test(line);
     // Explicit `end` is authoritative: fold precisely from its opening
     // declaration/class line to the matching closer, including nested blocks.
     const explicitlyFolded = new Set<number>();
@@ -2470,9 +2476,8 @@ function parseRuntimeCheckResult(
           item.message ?? "Felidae AST diagnostic",
           severity
         );
-        // The parser reports a missing period where it noticed (the start of what
-        // follows); the quick fix works out where the period belongs.
-        if (/^Expected '\./.test(diagnostic.message)) diagnostic.code = "expected-period";
+        // The parser says where the `end` of a conditional belongs; the quick fix inserts it there.
+        if (conditionalEndInsertion(diagnostic.message)) diagnostic.code = "missing-conditional-end";
         return diagnostic;
       });
     return {
@@ -2538,11 +2543,10 @@ function formatRuntimeCheckMessage(text: string): { message: string; severity: v
   return { message, severity };
 }
 
-// Quick fixes: insert the period a statement is missing (the commonest syntax
-// error), and remove an unused one-line binding.
-//   code "expected-period"  the parser's own position; where the period goes is worked out
-//   code "missing-period"   a diagnostic whose range already ends where it goes (notebook cells)
-//   code "unused-binding"   a local that is never used
+// Quick fixes: insert the `end` a conditional is missing (the commonest syntax error now that lines end
+// statements), and remove an unused one-line binding.
+//   code "missing-conditional-end"  the message carries the position of the `end`
+//   code "unused-binding"          a local that is never used
 class FelidaeCodeActionProvider implements vscode.CodeActionProvider {
   static readonly providedCodeActionKinds = [vscode.CodeActionKind.QuickFix];
 
@@ -2552,29 +2556,26 @@ class FelidaeCodeActionProvider implements vscode.CodeActionProvider {
     context: vscode.CodeActionContext
   ): vscode.ProviderResult<vscode.CodeAction[]> {
     const actions: vscode.CodeAction[] = [];
-    const linesOf = (): string[] => {
-      const lines: string[] = [];
-      for (let line = 0; line < document.lineCount; line++) lines.push(document.lineAt(line).text);
-      return lines;
-    };
     for (const diagnostic of context.diagnostics) {
-      if (diagnostic.code === "expected-period" || diagnostic.code === "missing-period") {
-        const at = diagnostic.code === "missing-period"
-          ? { line: diagnostic.range.end.line, column: diagnostic.range.end.character }
-          : periodInsertion(linesOf(), diagnostic.range.start.line, diagnostic.range.start.character);
+      if (diagnostic.code === "missing-conditional-end") {
+        const at = conditionalEndInsertion(diagnostic.message);
         if (!at) continue;
-        const action = new vscode.CodeAction("Insert the missing '.'", vscode.CodeActionKind.QuickFix);
+        const action = new vscode.CodeAction("Add the missing 'end'", vscode.CodeActionKind.QuickFix);
         action.diagnostics = [diagnostic];
         action.isPreferred = true;
         action.edit = new vscode.WorkspaceEdit();
-        action.edit.insert(document.uri, new vscode.Position(at.line, at.column), ".");
+        action.edit.insert(document.uri, new vscode.Position(at.line, at.column), " end");
         actions.push(action);
       } else if (diagnostic.code === "unused-binding") {
         const line = diagnostic.range.start.line;
         const name = document.getText(diagnostic.range);
         const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         // Only a whole statement on one line can be removed safely.
-        if (!new RegExp("^\\s*def\\s+" + escaped + "\\b.*\\.\\s*(#.*)?$").test(document.lineAt(line).text)) continue;
+        // (a line break ends the statement, so a line whose brackets are all closed is one whole statement)
+        const text = document.lineAt(line).text;
+        const code = text.replace(/"(?:[^"\\]|\\.)*"/g, '""').replace(/#.*$/, "");
+        const balanced = (code.match(/[([{]/g) ?? []).length === (code.match(/[)\]}]/g) ?? []).length;
+        if (!new RegExp("^\\s*def\\s+" + escaped + "\\b").test(text) || !balanced) continue;
         const action = new vscode.CodeAction("Remove unused binding '" + name + "'", vscode.CodeActionKind.QuickFix);
         action.diagnostics = [diagnostic];
         action.edit = new vscode.WorkspaceEdit();

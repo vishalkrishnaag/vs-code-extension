@@ -2,21 +2,21 @@
   "Import": {
     "prefix": "import",
     "body": [
-      "import \"${1:file.fx}\"."
+      "import \"${1:file.fx}\""
     ],
     "description": "Import a Felidae source file"
   },
   "Java Import": {
     "prefix": "importjava",
     "body": [
-      "import \"java:${1:java.util.ArrayList}\"."
+      "import ${1:java.util.ArrayList}"
     ],
     "description": "Import a Java class by its simple name"
   },
   "Immutable Binding": {
     "prefix": "binding",
     "body": [
-      "def ${1:value}${2:: ${3:Integer}} := ${4:expression}."
+      "def ${1:value}${2:: ${3:Integer}} := ${4:expression}"
     ],
     "description": "Declare an immutable binding"
   },
@@ -24,7 +24,7 @@
     "prefix": "function",
     "body": [
       "def ${1:name}(${2:value}: ${3:Integer}) =>",
-      "    ${4:expression}.",
+      "    ${4:expression}",
       "end"
     ],
     "description": "Declare a function; its last expression is the result"
@@ -33,7 +33,7 @@
     "prefix": "privateclass",
     "body": [
       "private class ${1:Helper}",
-      "    def ${2:value}: ${3:Integer} := ${4:0}.",
+      "    def ${2:value}: ${3:Integer} := ${4:0}",
       "end"
     ],
     "description": "A class only this file can use; classes are public by default"
@@ -42,7 +42,7 @@
     "prefix": "define",
     "body": [
       "define ${1:name}(${2:value}: ${3:Integer}) =>",
-      "    ${4:expression}.",
+      "    ${4:expression}",
       "end"
     ],
     "description": "Declare a function called with positional arguments, Java style: name(1, 2)"
@@ -51,7 +51,7 @@
     "prefix": "main",
     "body": [
       "def main() =>",
-      "    ${1:expression}.",
+      "    ${1:expression}",
       "end"
     ],
     "description": "Declare the program entry function"
@@ -60,9 +60,9 @@
     "prefix": "class",
     "body": [
       "class ${1:Entity}",
-      "    key(${2:id}).",
-      "    def ${2:id}: ${3:String}.",
-      "    def ${4:enabled}: ${5:Boolean} := ${6:true}.",
+      "    key(${2:id})",
+      "    def ${2:id}: ${3:String}",
+      "    def ${4:enabled}: ${5:Boolean} := ${6:true}",
       "end"
     ],
     "description": "Declare a class; when every field is storable its instances are facts stored in TidesDB"
@@ -71,7 +71,7 @@
     "prefix": "subclass",
     "body": [
       "class ${1:Student} extends ${2:Person}",
-      "    def ${3:grade}: ${4:Integer}.",
+      "    def ${3:grade}: ${4:Integer}",
       "end"
     ],
     "description": "Declare a class with a superclass"
@@ -80,11 +80,11 @@
     "prefix": "staticclass",
     "body": [
       "static class ${1:Tally}",
-      "    def ${2:total}: ${3:Integer} := ${4:0}.",
+      "    def ${2:total}: ${3:Integer} := ${4:0}",
       "",
       "    def ${5:add}(${6:amount}: ${3:Integer}) =>",
-      "        this.${2:total} := this.${2:total} + ${6:amount}.",
-      "        this.${2:total}.",
+      "        this.${2:total} := this.${2:total} + ${6:amount}",
+      "        this.${2:total}",
       "    end",
       "end"
     ],
@@ -94,8 +94,8 @@
     "prefix": "constructor",
     "body": [
       "def ${1:Entity}(${2:id}: ${3:String}) =>",
-      "    this.${2:id} := ${2:id}.",
-      "    this.save().",
+      "    this.${2:id} := ${2:id}",
+      "    this.save()",
       "end"
     ],
     "description": "A class's own constructor: a method named like the class"
@@ -103,7 +103,7 @@
   "New Fact": {
     "prefix": "new",
     "body": [
-      "new ${1:Entity}(${2:id}: ${3:\"e1\"})."
+      "new ${1:Entity}(${2:id}: ${3:\"e1\"})"
     ],
     "description": "Create an instance; a fact class writes the fact to TidesDB"
   },
@@ -112,7 +112,7 @@
     "body": [
       "@mixfix(pattern: '{${1:left}: ${2:Integer}} ${3:combine} {${4:right}: ${2:Integer}}')",
       "def ${5:combineNumbers}() =>",
-      "    ${6:left + right}.",
+      "    ${6:left + right}",
       "end"
     ],
     "description": "Declare an operator: the typed captures of the pattern are the parameters"
@@ -122,7 +122,7 @@
     "body": [
       "@override",
       "def ${1:name}(${2:value}: ${3:Integer}) =>",
-      "    ${4:expression}.",
+      "    ${4:expression}",
       "end"
     ],
     "description": "Override a method of the superclass"
@@ -130,7 +130,7 @@
   "Conditional Expression": {
     "prefix": "condition",
     "body": [
-      "${1:left} = ${2:right} then ${3:value} else ${4:fallback}."
+      "${1:left} = ${2:right} then ${3:value} else ${4:fallback} end"
     ],
     "description": "Create a conditional expression"
   },
@@ -138,7 +138,7 @@
     "prefix": "for",
     "body": [
       "for ${1:item} in ${2:values} then",
-      "    ${3:expression}.",
+      "    ${3:expression}",
       "end"
     ],
     "description": "Iterate a list, a range or a selection of facts"
@@ -147,7 +147,7 @@
     "prefix": "while",
     "body": [
       "while ${1:condition} then",
-      "    ${2:expression}.",
+      "    ${2:expression}",
       "end"
     ],
     "description": "Repeat while a Boolean condition is true"
@@ -157,10 +157,10 @@
     "body": [
       "switch ${1:value}",
       "case ${2:expected} then",
-      "    ${3:expression}.",
-      "    break.",
+      "    ${3:expression}",
+      "    break",
       "default then",
-      "    ${4:fallback}.",
+      "    ${4:fallback}",
       "end"
     ],
     "description": "A switch block: a case falls through to the next until break"
@@ -169,9 +169,9 @@
     "prefix": "try",
     "body": [
       "try",
-      "    ${1:expression}.",
+      "    ${1:expression}",
       "catch ${2:error} then",
-      "    ${3:error.message}.",
+      "    ${3:error.message}",
       "end"
     ],
     "description": "Catch an exception: error is (kind: Atom, message: String)"
@@ -179,21 +179,21 @@
   "Throw": {
     "prefix": "throw",
     "body": [
-      "throw(kind: ${1:runtime}, message: ${2:\"failed\"})."
+      "throw(kind: ${1:runtime}, message: ${2:\"failed\"})"
     ],
     "description": "Raise an exception; its type is Nothing"
   },
   "Query": {
     "prefix": "query",
     "body": [
-      "${1:Employee}().where(${2:active}: ${3:true}).all()."
+      "${1:Employee}().where(${2:active}: ${3:true}).all()"
     ],
     "description": "Select facts of a class and read them"
   },
   "Insert": {
     "prefix": "insert",
     "body": [
-      "${1:Employee}().insert(values: {${2:id}: ${3:\"e1\"}})."
+      "${1:Employee}().insert(values: {${2:id}: ${3:\"e1\"}})"
     ],
     "description": "Store a new fact; an error if the key exists"
   },
@@ -204,7 +204,7 @@
       "    from: ${1:left}.${2:id},",
       "    to: ${3:right}.${2:id},",
       "    properties: {${4:kind}: ${5:\"works_in\"}}",
-      ")."
+      ")"
     ],
     "description": "Store an edge between two stored facts"
   },
@@ -215,28 +215,28 @@
       "    from: ${1:left}.${2:id},",
       "    to: ${3:right}.${2:id},",
       "    properties: {${4:kind}: ${5:\"works_in\"}}",
-      ")."
+      ")"
     ],
     "description": "Remove a stored link"
   },
   "Join": {
     "prefix": "join",
     "body": [
-      "${1:Employee}().join(to: ${2:Department}, type: ${3:forward}, properties: {${4:kind}: ${5:\"works_in\"}})."
+      "${1:Employee}().join(to: ${2:Department}, type: ${3:forward}, properties: {${4:kind}: ${5:\"works_in\"}})"
     ],
     "description": "Walk links to facts of another class; returns typed rows (left, right, properties, depth)"
   },
   "Atom Predicate": {
     "prefix": "isatom",
     "body": [
-      "is_atom(${1:value})."
+      "is_atom(${1:value})"
     ],
     "description": "Test whether a value is a data atom"
   },
   "Type": {
     "prefix": "type",
     "body": [
-      "type(${1:value})."
+      "type(${1:value})"
     ],
     "description": "Return the type name of a value"
   }

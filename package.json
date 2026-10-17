@@ -2,7 +2,7 @@
   "name": "felidae-vscode",
   "displayName": "Felidae",
   "description": "Felidae .fx support with interpreter debugging, diagnostics, and language services.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "local",
   "repository": {
     "type": "git",

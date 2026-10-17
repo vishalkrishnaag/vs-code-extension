@@ -232,7 +232,7 @@ export function buildCellExpression(cell: Cell, args = ""): string {
 export const CELL_FILE = "cell_run.fx";
 
 export function cellProgram(documentFileName: string, expression: string): string {
-  return 'import "' + documentFileName.replace(/\\/g, "/").replace(/"/g, '\\"') + '".\n\ndef main() =>\n    ' + expression + "\nend\n";
+  return 'import "' + documentFileName.replace(/\\/g, "/").replace(/"/g, '\\"') + '"\n\ndef main() =>\n    ' + expression + "\nend\n";
 }
 
 // Small stable hash, enough to tell whether a cell's source changed.

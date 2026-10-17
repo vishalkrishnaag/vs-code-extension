@@ -1,5 +1,5 @@
 const path = require("path");
-const { docCommentAbove, periodInsertion, findUnusedLocals } = require(path.resolve(__dirname, "..", "out", "editing.js"));
+const { docCommentAbove, conditionalEndInsertion, findUnusedLocals } = require(path.resolve(__dirname, "..", "out", "editing.js"));
 
 let pass = 0, fail = 0;
 const check = (name, actual, expected) => {
@@ -15,17 +15,10 @@ check("a def with nothing above has no doc", docCommentAbove(["def f() =>", "end
 check("the # and one space are removed, deeper indentation kept", docCommentAbove(["#   indented note", "def f() =>"], 1), ["  indented note"]);
 check("a code line stops the comment", docCommentAbove(["x := 1.", "# note", "def f() =>"], 2), ["note"]);
 
-// ---- where a missing period goes
-check("an error at the start of the next statement puts the period at the end of the previous line",
-  periodInsertion(["def a := 1", "def b := 2."], 1, 0), { line: 0, column: 10 });
-check("blank lines and comments in between are skipped",
-  periodInsertion(["def a := 1  # one", "", "# next", "def b := 2."], 3, 0), { line: 0, column: 10 });
-check("a trailing comment is not part of the code the period follows",
-  periodInsertion(["def a := \"x # y\" # note", "def b := 2."], 1, 0), { line: 0, column: 16 });
-check("an error mid-line puts the period just before it, after trimming spaces",
-  periodInsertion(["def a := 1   def b := 2."], 0, 13), { line: 0, column: 10 });
-check("an error at the end of the file puts it after the last code line", periodInsertion(["def a := 1", ""], 2, 0), { line: 0, column: 10 });
-check("nothing above means nowhere to put it", periodInsertion(["def a := 1."], 0, 0), undefined);
+// ---- where a missing conditional `end` goes
+check("the parser's message names the place, which is returned zero-based",
+  conditionalEndInsertion("A conditional ends with 'end': add it after the last branch at line 2, column 37"), { line: 1, column: 36 });
+check("any other message gives nothing", conditionalEndInsertion("Expected an expression at line 1, column 2"), undefined);
 
 // ---- unused locals and parameters (tokens as the extension's lexer makes them)
 function lex(text) {

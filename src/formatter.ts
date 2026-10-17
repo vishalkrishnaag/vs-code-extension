@@ -84,13 +84,14 @@ function leadingWidth(rawLine: string): number {
   return width;
 }
 
-// Only constructs that own an explicit `end` open formatter frames. A
-// conditional `then` expression does not own an `end`, and catch/case/default
-// continue the surrounding try/switch frame rather than opening another one.
+// Only constructs that own an explicit `end` open formatter frames: classes, functions, loops, `switch`, `try` and a
+// conditional whose branches start on the next line (`x > 0 then`). else/catch/case/default continue the surrounding
+// frame rather than opening another one.
 function opensBlock(masked: string): boolean {
-  return /^\s*class\s+[A-Za-z_][A-Za-z0-9_.]*(?:\s+extends?\b.*)?\s*$/.test(masked) ||
-    /^\s*def\s+[A-Za-z_][A-Za-z0-9_.]*\s*\([^)]*\)\s*=>\s*$/.test(masked) ||
-    /^\s*(?:for\b.*\bthen|while\b.*\bthen|switch\b.*|try)\s*$/.test(masked);
+  return /^\s*(?:private\s+)?(?:static\s+)?class\s+[A-Za-z_][A-Za-z0-9_.]*(?:\s+extends?\b.*)?\s*$/.test(masked) ||
+    /^\s*(?:def|define)\s+[A-Za-z_][A-Za-z0-9_.]*\s*\([^)]*\)\s*=>\s*$/.test(masked) ||
+    /^\s*(?:for\b.*\bthen|while\b.*\bthen|switch\b.*|try)\s*$/.test(masked) ||
+    /^\s*(?!(?:else|catch|case|default)\b)\S.*\bthen\s*$/.test(masked);
 }
 
 interface BlockFrame {
@@ -127,7 +128,7 @@ export function formatFelidaeLines(rawLines: readonly string[]): string[] {
 
     const masked = maskLine(rawLine);
     const isComment = trimmed.startsWith("#");
-    const isBranch = /^(?:else\b|catch\b.*\bthen|case\b.*\bthen|default\s+then)\s*$/.test(trimmed);
+    const isBranch = /^(?:else\b(?:.*\bthen)?|catch\b.*\bthen|case\b.*\bthen|default\s+then)\s*$/.test(trimmed);
     const isBareEnd = trimmed === "end";
     // A comment's own column is only trustworthy as a dedent signal when it
     // opens a new paragraph (preceded by a blank line, or file start) - a

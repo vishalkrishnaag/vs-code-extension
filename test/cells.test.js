@@ -96,8 +96,8 @@ check("native declaration parameters are read", nativeCells[1].params.map((p) =>
 
 // a cell runs from a small program that imports the document
 check("a cell's program imports the document and runs the expression in main()",
-  cells.cellProgram("total.fx", "total."),
-  'import "total.fx".\n\ndef main() =>\n    total.\nend\n');
+  cells.cellProgram("total.fx", "total"),
+  'import "total.fx"\n\ndef main() =>\n    total\nend\n');
 check("the cell file is named once, here", cells.CELL_FILE, "cell_run.fx");
 
 // robustness on odd input

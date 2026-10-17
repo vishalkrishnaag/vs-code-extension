@@ -38,6 +38,9 @@ check("def before a binding is a variable declaration", has("def total := 1.", "
 check("def before a typed field is a variable declaration", has("def id: String.", "keyword.declaration.variable.felidae"), true);
 check("static class is a modifier", has("static class Tally", "storage.modifier.static.felidae"), true);
 check("private class is a modifier", has("private class Secret", "storage.modifier.static.felidae"), true);
+check("import is a keyword", has("import java.util.ArrayList", "keyword.control.import.Felidae"), true);
+check("package is a keyword", has("package com.acme", "keyword.control.import.Felidae"), true);
+check("an imported Java name is scoped", has("import java.util.*", "entity.name.type.import.felidae"), true);
 check("@mixfix is an annotation", has("@mixfix(pattern: 'a b')", "storage.type.annotation.felidae"), true);
 check("nil and booleans are constants", [has("nil", "constant.language.felidae"), has("true", "constant.language.felidae")], [true, true]);
 check("and/or/not are logical operators", has("not x", "keyword.operator.logical.word.felidae"), true);

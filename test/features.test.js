@@ -218,15 +218,10 @@ const fixes = (text, diagnostics) => {
 const at = (line, column, endLine = line, endColumn = column + 1) => ({
   start: new vscode.Position(line, column), end: new vscode.Position(endLine, endColumn)
 });
-check("an 'Expected .' error at the start of the next statement is fixed at the end of the previous line",
-  fixes("def a := 1\ndef b := 2.", [{ code: "expected-period", range: at(1, 0), message: "Expected '.' after global binding" }]),
-  [{ title: "Insert the missing '.'", edits: [["insert", 0, 10, "."]] }]);
-check("a comment after the statement does not move the period",
-  fixes("def a := 1  # one\n\ndef b := 2.", [{ code: "expected-period", range: at(2, 0), message: "Expected '.'" }])[0].edits,
-  [["insert", 0, 10, "."]]);
-check("a notebook-style diagnostic already ends where the period goes",
-  fixes("def a := 1", [{ code: "missing-period", range: at(0, 9, 0, 10), message: "Expected '.' after global binding" }])[0].edits,
-  [["insert", 0, 10, "."]]);
+const missingEnd = "A conditional ends with 'end': add it after the last branch at line 2, column 14";
+check("a missing conditional 'end' is inserted where the parser says it belongs",
+  fixes("def f() =>\n    1 > 0 then 1 else 2.\nend", [{ code: "missing-conditional-end", range: at(1, 13), message: missingEnd }]),
+  [{ title: "Add the missing 'end'", edits: [["insert", 1, 13, " end"]] }]);
 check("an unrelated diagnostic gets no fix", fixes("def a := 1", [{ code: "other", range: at(0, 0), message: "something" }]), []);
 const unusedSrc = "def f(a: number) =>\n    def temp := a + 1.\n    a.\nend";
 check("an unused one-line binding can be removed (the whole line)",

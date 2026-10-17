@@ -508,7 +508,7 @@ export class FelidaeDebugSession {
         if (entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules") search(path.join(directory, entry.name), depth - 1);
       }
     };
-    for (const directory of this.sourceDirs) search(directory, 3);
+    for (const directory of this.sourceDirs) search(directory, 8); // a package puts a file several folders deep
     this.sourceCache.set(name, found);
     return found;
   }
