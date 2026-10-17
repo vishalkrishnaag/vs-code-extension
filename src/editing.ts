@@ -4,9 +4,9 @@
 
 // The `#` comment lines directly above `line` (no blank line between), without
 // the `#`, as one paragraph per original line. Empty when there is none.
-/** `def`, or `defprivate` (a function only the file that declares it may use). */
+/** `def` (named arguments) or `define` (positional arguments): the keywords that declare a function. */
 export function isDefWord(text: string | undefined): boolean {
-  return text === "def" || text === "defprivate";
+  return text === "def" || text === "define";
 }
 
 export function docCommentAbove(lines: readonly string[], line: number): string[] {

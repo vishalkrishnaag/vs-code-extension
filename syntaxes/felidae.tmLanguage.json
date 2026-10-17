@@ -99,11 +99,11 @@
       "patterns": [
         {
           "name": "keyword.declaration.function.felidae",
-          "match": "\\b(?:def|defprivate)\\b(?=\\s+[A-Za-z_][A-Za-z0-9_.]*\\s*\\([^)]*\\)\\s*=>)"
+          "match": "\\b(?:def|define)\\b(?=\\s+[A-Za-z_][A-Za-z0-9_.]*\\s*\\([^)]*\\)\\s*=>)"
         },
         {
           "name": "keyword.declaration.function.felidae",
-          "match": "\\bdefprivate\\b"
+          "match": "\\bdefine\\b"
         },
         {
           "name": "keyword.declaration.variable.felidae",
@@ -111,7 +111,7 @@
         },
         {
           "name": "storage.modifier.static.felidae",
-          "match": "\\bstatic\\b(?=\\s+class\\b)"
+          "match": "\\b(?:private|static)\\b(?=\\s+(?:static\\s+)?class\\b)"
         },
         {
           "name": "keyword.declaration.class.felidae",

@@ -92,7 +92,7 @@ check("def x := v is a binding", kindOf("def x := 1."), "variable");
 check("def x: T := v is a binding", kindOf("def x: number := 1."), "variable");
 check("class field def id: T is a binding", kindOf("def id: string."), "variable");
 check("def Name(...). is no longer a declaration (a fact is `new Name(...).`)", kindOf("def Employee(id: \"e1\", state: active)."), "generic");
-check("defprivate f(...) => is a function", kindOf("defprivate helper(x: Integer) =>"), "function");
+check("define f(...) => is a function", kindOf("define add(a: Integer, b: Integer) =>"), "function");
 
 // --- auto-insert end: only an opener without its own end needs one
 const needs = (text, line) => F.openerNeedsEnd(text.split("\n"), line);

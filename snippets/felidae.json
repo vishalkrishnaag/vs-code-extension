@@ -29,14 +29,23 @@
     ],
     "description": "Declare a function; its last expression is the result"
   },
-  "Private Function": {
-    "prefix": "defprivate",
+  "Private Class": {
+    "prefix": "privateclass",
     "body": [
-      "defprivate ${1:name}(${2:value}: ${3:Integer}) =>",
+      "private class ${1:Helper}",
+      "    def ${2:value}: ${3:Integer} := ${4:0}.",
+      "end"
+    ],
+    "description": "A class only this file can use; classes are public by default"
+  },
+  "Positional Function": {
+    "prefix": "define",
+    "body": [
+      "define ${1:name}(${2:value}: ${3:Integer}) =>",
       "    ${4:expression}.",
       "end"
     ],
-    "description": "Declare a function only this file can use"
+    "description": "Declare a function called with positional arguments, Java style: name(1, 2)"
   },
   "Main": {
     "prefix": "main",

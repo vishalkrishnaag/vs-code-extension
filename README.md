@@ -19,7 +19,7 @@ The extension follows the Java compiler (`felidae` compiles a program to JVM cla
   because `--query` no longer exists.
 - **REPL.** *Open REPL* starts `felidae-repl`: it asks whether to append (all code is kept in `repl.fx` and the whole
   file runs each time) or not (each input replaces the file).
-- **Language.** PascalCase types and generics, `defprivate`, `static class`, `new`, `@mixfix`, `@override`, `Link`,
+- **Language.** PascalCase types and generics, `define` (positional arguments), `private class`, `static class`, `new`, `@mixfix`, `@override`, `Link`,
   `Unlink`; new snippets; new completion docs for the builtins and class members; the Gradle layout
   (`build/java/cli/install/felidae/bin/felidae`) is found automatically.
 - **Removed:** the ranking models (trained on the old language) and the generators for the old library list.
