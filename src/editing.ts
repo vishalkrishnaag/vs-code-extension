@@ -4,6 +4,11 @@
 
 // The `#` comment lines directly above `line` (no blank line between), without
 // the `#`, as one paragraph per original line. Empty when there is none.
+/** `def`, or `defprivate` (a function only the file that declares it may use). */
+export function isDefWord(text: string | undefined): boolean {
+  return text === "def" || text === "defprivate";
+}
+
 export function docCommentAbove(lines: readonly string[], line: number): string[] {
   const comment: string[] = [];
   for (let index = line - 1; index >= 0; index--) {
@@ -77,7 +82,7 @@ export function findUnusedLocals(
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
-    if (token.kind !== "ident" || token.text !== "def" || tokens[i + 1]?.kind !== "ident" || tokens[i + 2]?.kind !== "lparen") continue;
+    if (token.kind !== "ident" || !isDefWord(token.text) || tokens[i + 1]?.kind !== "ident" || tokens[i + 2]?.kind !== "lparen") continue;
     const endLine = byOpener.get(token.line);
     if (endLine === undefined) continue;
 
@@ -113,7 +118,7 @@ export function findUnusedLocals(
     }
     // Locals: `def name :=` or `def name: Type :=` inside the body.
     for (let j = close + 1; j <= last; j++) {
-      if (tokens[j].text === "def" && tokens[j].kind === "ident" && tokens[j + 1]?.kind === "ident") {
+      if (isDefWord(tokens[j].text) && tokens[j].kind === "ident" && tokens[j + 1]?.kind === "ident") {
         const after = tokens[j + 2]?.kind;
         if (after === "bind" || after === "colon") candidates.push({ at: j + 1, kind: "binding" });
       }

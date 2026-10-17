@@ -94,14 +94,11 @@ check("native declarations are function cells with their own end",
   [["function", "math.pi", 1, 2], ["function", "math.pow", 3, 4]]);
 check("native declaration parameters are read", nativeCells[1].params.map((p) => p.name), ["base", "exponent"]);
 
-// a binding is read through a generated function appended to the file
-const fileText = "def total := 40 + 2.\n\ndef main() =>\n    total.\nend\n\n\n";
-check("a binding's program is the file plus a function that reads it",
-  cells.bindingProgram(fileText, "total"),
-  "def total := 40 + 2.\n\ndef main() =>\n    total.\nend\n\ndef felidae_cell_result() =>\n    total.\nend\n");
-check("the file's own lines keep their numbers (errors still point at the right line)",
-  cells.bindingProgram(fileText, "total").split("\n").slice(0, 5), fileText.split("\n").slice(0, 5));
-check("the result function is named once, here", cells.RESULT_FUNCTION, "felidae_cell_result");
+// a cell runs from a small program that imports the document
+check("a cell's program imports the document and runs the expression in main()",
+  cells.cellProgram("total.fx", "total."),
+  'import "total.fx".\n\ndef main() =>\n    total.\nend\n');
+check("the cell file is named once, here", cells.CELL_FILE, "cell_run.fx");
 
 // robustness on odd input
 check("an empty file has no cells", cells.splitCells([""], []).length, 0);

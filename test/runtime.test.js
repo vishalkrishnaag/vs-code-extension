@@ -14,8 +14,10 @@ vscode.EventEmitter = class {
   dispose() {}
 };
 const children = [];
+const spawned = [];
 const processStub = {
-  spawn() {
+  spawn(command, args) {
+    spawned.push([command, args]);
     const child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
@@ -59,26 +61,29 @@ const request = (adapter, command, args = {}, seq = 1) => adapter.handleMessage(
 });
 
 (async () => {
-  for (const stopOnEntry of [true, false]) {
-    outputs.length = 0;
-    const adapter = new FelidaeDebugAdapter();
-    request(adapter, 'setBreakpoints', { breakpoints: [{ line: 7 }] });
-    request(adapter, 'launch', { interpreterPath: '/felidae', program: '/sample.fx', stopOnEntry });
-    request(adapter, 'configurationDone');
-    const child = children.at(-1);
-    child.stdout.emit('data', Buffer.from('FELIDAE_DEBUG_STOPPED reason=step line=3\n'));
-    await tick();
-    assert(child.writes.includes('break 7\n'), 'pre-launch breakpoint retained');
-    assert.equal(child.writes.includes('continue\n'), !stopOnEntry);
-    request(adapter, 'evaluate', { expression: 'answer' }, 10);
-    request(adapter, 'evaluate', { expression: 'answer' }, 11);
-    await tick();
-    for (const seq of [10, 11]) assert.equal(outputs.find(x => x.request_seq === seq).body.result, '42');
-    request(adapter, 'evaluate', { expression: '? Fact(x: x)' }, 12);
-    assert.equal(outputs.find(x => x.request_seq === 12).success, false);
-    child.emit('close', 0);
-    await tick();
-  }
+  // The debug session itself is checked end to end in debug.test.js; here: how a launch that never starts fails.
+  outputs.length = 0;
+  const missing = new FelidaeDebugAdapter();
+  request(missing, 'launch', { interpreterPath: '/missing', program: '/sample.fx' }, 90);
+  children.at(-1).emit('error', new Error('ENOENT'));
+  await tick();
+  const refused = outputs.find(x => x.request_seq === 90);
+  assert.equal(refused.success, false);
+  assert(refused.message.includes('Cannot start /missing'), refused.message);
+
+  outputs.length = 0;
+  const failing = new FelidaeDebugAdapter();
+  request(failing, 'launch', { interpreterPath: '/felidae', program: '/sample.fx' }, 91);
+  const compiler = children.at(-1);
+  compiler.stderr.emit('data', Buffer.from('error: Cannot compare Integer and String at line 3, column 5\n'));
+  compiler.emit('exit', 1);
+  await tick();
+  const failed = outputs.find(x => x.request_seq === 91);
+  assert.equal(failed.success, false);
+  assert(failed.message.includes('Cannot compare Integer and String'), failed.message);
+
+  // the command line: felidae --debug --port 0 program
+  assert.deepEqual(spawned.at(-1).slice(0, 2), ['/felidae', ['--debug', '--port', '0', '/sample.fx']]);
   const platform = Object.getOwnPropertyDescriptor(process, 'platform');
   try {
     for (const os of ['win32', 'linux', 'darwin']) {
@@ -101,13 +106,5 @@ const request = (adapter, command, args = {}, seq = 1) => adapter.handleMessage(
       }
     }
   } finally { Object.defineProperty(process, 'platform', platform); }
-  outputs.length = 0;
-  const failed = new FelidaeDebugAdapter();
-  request(failed, 'launch', { interpreterPath: '/missing', program: '/sample.fx' }, 90);
-  const child = children.at(-1);
-  child.emit('error', new Error('ENOENT'));
-  child.emit('close', -2);
-  await tick();
-  assert.equal(outputs.find(x => x.request_seq === 90).success, false);
-  console.log('Launch, breakpoint, stopOnEntry, concurrent evaluation, and platform command checks passed.');
+  console.log('Launch failure and platform command checks passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

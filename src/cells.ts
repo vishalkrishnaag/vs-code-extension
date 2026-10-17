@@ -37,7 +37,7 @@ export interface BlockPair {
 // A ':' or '.' belongs to a name only when an identifier follows it, so
 // "def label: string" names `label`, not `label:`.
 const NAME = "[A-Za-z_][A-Za-z0-9_]*(?:[:.][A-Za-z_][A-Za-z0-9_]*)*";
-const DEF_HEAD = new RegExp("^def\\s+(" + NAME + ")");
+const DEF_HEAD = new RegExp("^(?:def|defprivate)\\s+(" + NAME + ")");
 const CLASS_HEAD = /^class\s+([A-Za-z_][A-Za-z0-9_.]*)/;
 
 // The line without its trailing `# comment`, ignoring a # inside a string.
@@ -226,16 +226,13 @@ export function buildCellExpression(cell: Cell, args = ""): string {
   }
 }
 
-// The generated function that returns a binding's value.
-export const RESULT_FUNCTION = "felidae_cell_result";
+// The file a cell is run from. A cell is a definition of the document, so the program imports the document and
+// its `main()` runs the cell's expression (a call, a binding's name, `Class.all()`). The document keeps its own
+// `main()` (it is in another file), and the expression sees the document's functions and bindings.
+export const CELL_FILE = "cell_run.fx";
 
-// A bare query is parsed on its own, where a name bound by an earlier `def` is
-// only an atom (`felidae file.fx --query "total."` prints `total`, not 42);
-// inside a program the same name resolves to its value. So a binding cell is
-// read through a function appended to the file's own text, which is run with
-// `--stdin` (the file is the program, the file name is its logical name).
-export function bindingProgram(fileText: string, name: string): string {
-  return fileText.replace(/\s+$/, "") + "\n\ndef " + RESULT_FUNCTION + "() =>\n    " + name + ".\nend\n";
+export function cellProgram(documentFileName: string, expression: string): string {
+  return 'import "' + documentFileName.replace(/\\/g, "/").replace(/"/g, '\\"') + '".\n\ndef main() =>\n    ' + expression + "\nend\n";
 }
 
 // Small stable hash, enough to tell whether a cell's source changed.

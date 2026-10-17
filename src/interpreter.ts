@@ -48,33 +48,35 @@ const defaultIsFile = (candidate: string): boolean => {
   }
 };
 
+// felidae is a launcher script: Gradle's installDist writes bin/felidae and bin/felidae.bat.
 export function executableName(platform: NodeJS.Platform): string {
-  return platform === "win32" ? "felidae.exe" : "felidae";
+  return platform === "win32" ? "felidae.bat" : "felidae";
 }
 
-// Where builds put the interpreter, relative to a repository root. Release
-// before debug: a release build is the one meant to be used.
-export function relativeCandidates(platform: NodeJS.Platform, arch: string): string[] {
+// Where builds put the felidae command, relative to a repository root: the Gradle distribution
+// (`./gradlew installDist`, under build/java/cli/install/felidae) first, then a packaged one.
+export function relativeCandidates(platform: NodeJS.Platform, _arch: string): string[] {
   const exe = executableName(platform);
-  if (platform === "win32") {
-    return [
-      `build/release/x64/Release/${exe}`,
-      `build/debug/x64/Debug/${exe}`,
-      `build/windows-x64/release/dist/bin/${exe}`,
-      `build/release/dist/bin/${exe}`,
-      `dist/bin/${exe}`,
-      `release/bin/${exe}`
-    ];
-  }
-  const macos = platform === "darwin" ? [`build/macos-${arch === "arm64" ? "arm64" : "x86_64"}/release/dist/bin/${exe}`] : [];
   return [
-    ...macos,
-    `build/release/dist/bin/${exe}`,
-    `build/release/${exe}`,
-    `build/debug/${exe}`,
+    `build/java/cli/install/felidae/bin/${exe}`,
     `dist/bin/${exe}`,
     `release/bin/${exe}`
   ];
+}
+
+/**
+ * The REPL command that goes with a felidae command: the Gradle distributions sit side by side
+ * (build/java/cli/install/felidae/bin/felidae and build/java/repl/install/felidae-repl/bin/felidae-repl);
+ * otherwise `felidae-repl` is looked for next to felidae, then on PATH.
+ */
+export function replExecutable(interpreterPath: string, platform: NodeJS.Platform): string {
+  const name = platform === "win32" ? "felidae-repl.bat" : "felidae-repl";
+  const normalized = interpreterPath.replace(/\\/g, "/");
+  const gradle = "/cli/install/felidae/bin/";
+  const at = normalized.lastIndexOf(gradle);
+  if (at >= 0) return path.normalize(normalized.slice(0, at) + "/repl/install/felidae-repl/bin/" + name);
+  if (path.isAbsolute(interpreterPath)) return path.join(path.dirname(interpreterPath), name);
+  return name;
 }
 
 // The workspace folders, then the notebook's folder and its parents, nearest first.
@@ -116,7 +118,7 @@ export function discoverInterpreters(search: InterpreterSearch): InterpreterChoi
 function resolveConfigured(value: string, search: InterpreterSearch): string {
   const isFile = search.isFile ?? defaultIsFile;
   const withSuffix = (candidate: string) =>
-    search.platform === "win32" && !path.extname(candidate) && !isFile(candidate) ? candidate + ".exe" : candidate;
+    search.platform === "win32" && !path.extname(candidate) && !isFile(candidate) ? candidate + ".bat" : candidate;
   const trimmed = value.trim();
   if (path.isAbsolute(trimmed)) return withSuffix(trimmed);
   for (const base of searchBases(search.workspaceFolders, search.notebookFolder)) {
@@ -152,10 +154,4 @@ export function searchedLocations(search: InterpreterSearch): string[] {
 // `felidae --version` prints e.g. "Felidae Logic Programming Language v0.2.3-beta.1".
 export function parseVersion(output: string): string | undefined {
   return /\bv(\d[^\s]*)/.exec(output)?.[1];
-}
-
-// Only an interpreter that can run a program from stdin (felidae file.fx
-// --stdin) can run notebook cells. Its --help says so; older builds do not.
-export function supportsStdinRuns(helpText: string): boolean {
-  return /program text from stdin/i.test(helpText);
 }

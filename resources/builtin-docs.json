@@ -1,80 +1,20 @@
 {
-  "then": {
-    "heading": "then",
-    "description": "Pipes one expression into the next expression from left to right. The right side can read the previous successful step through system.result.",
-    "example": "def score := Load() then Normalize(input: system.result) then Rank(input: system.result).",
+  "print": {
+    "heading": "print",
+    "description": "Writes the text of a value to standard output, followed by a newline. A string prints without quotes.",
+    "example": "print \"hello\".",
     "params": []
   },
-  "system:result": {
-    "heading": "system.result",
-    "description": "Read-only value for the previous successful step inside the right side of a then pipeline. It is unavailable outside that pipeline scope.",
-    "example": "def result := StepOne() then StepTwo(input: system.result).",
-    "params": []
-  },
-  "lambda": {
-    "heading": "lambda",
-    "description": "Filters or maps an array/fact collection with a local immutable item variable.",
-    "example": "def Adults := lambda(Person, p => p.age >= 18).",
-    "params": []
-  },
-  "ParseDoc": {
-    "heading": "ParseDoc",
-    "description": "Demo parser function used by method-style examples to map document text.",
-    "example": "def parsed := lambda(docs, d => ParseDoc(d.doc)).",
-    "params": []
-  },
-  "count": {
-    "heading": "count",
-    "description": "Returns the number of items in an array or fact/type collection.",
-    "example": "count(Adults)",
-    "params": []
-  },
-  "average": {
-    "heading": "average",
-    "description": "Returns the average of a numeric array.",
-    "example": "average(lambda(Person, p => p.age))",
-    "params": []
-  },
-  "sort": {
-    "heading": "sort",
-    "description": "Sorts an array of numbers or strings.",
-    "example": "sort(lambda(Person, p => p.name))",
-    "params": []
-  },
-  "search": {
-    "heading": "search",
-    "description": "Filters strings in an array using substring matching.",
-    "example": "search(lambda(Person, p => p.name), \"Ra\")",
-    "params": []
-  },
-  "contains": {
-    "heading": "contains",
-    "description": "Checks a string substring or array membership.",
-    "example": "contains(\"Ravi\", \"Ra\")",
-    "params": []
-  },
-  "lower": {
-    "heading": "lower",
-    "description": "Converts a string to lowercase.",
-    "example": "lower(\"HELLO\")",
-    "params": []
-  },
-  "upper": {
-    "heading": "upper",
-    "description": "Converts a string to uppercase.",
-    "example": "upper(\"hello\")",
-    "params": []
-  },
-  "length": {
-    "heading": "length",
-    "description": "Returns the length of a string or array.",
-    "example": "length(\"hello\")",
+  "range": {
+    "heading": "range",
+    "description": "The integers from `start` up to, but not including, `end`; used as the iterable of a for loop.",
+    "example": "for i in range(0, 3) then print i. end",
     "params": []
   },
   "throw": {
     "heading": "throw",
-    "description": "Raises an exception with an atom kind and string message.",
-    "example": "throw(kind: late, message: \"after the write\")",
+    "description": "Raises an exception. Its type is Nothing, so it fits any position. A catch binds it as (kind: Atom, message: String).",
+    "example": "x > 0 then x else throw(kind: not_found, message: \"no such row\").",
     "params": [
       {
         "name": "kind"
@@ -86,977 +26,260 @@
   },
   "type": {
     "heading": "type",
-    "description": "Reads the concrete fact/type name from a map value that carries runtime type metadata.",
-    "example": "type(value: employee, name: TypeName)",
+    "description": "The name of a value's type as a string: Integer, Long, Float, Double, Character, String, Boolean, Atom, List, Map, Pair, Nil, or the class of an object.",
+    "example": "type(5).",
+    "params": []
+  },
+  "is_atom": {
+    "heading": "is_atom",
+    "description": "True only for a data atom: never for a string, number, class reference or function reference.",
+    "example": "is_atom(active).",
+    "params": []
+  },
+  "len": {
+    "heading": "len",
+    "description": "The number of items of a list (a member of List: `items.len()`).",
+    "example": "[1, 2, 3].len().",
+    "params": []
+  },
+  "Link": {
+    "heading": "Link",
+    "description": "Stores an edge between two stored facts, named by their keys. `type` is forward (the default), backward or both; `properties` is a map literal of scalar values. Both facts must be stored.",
+    "example": "Link(from: ada.id, to: research.id, type: forward, properties: {kind: \"works_in\"}).",
     "params": [
       {
-        "name": "value"
+        "name": "from"
       },
       {
-        "name": "name"
-      }
-    ]
-  },
-  "instanceof": {
-    "heading": "instanceof",
-    "description": "Succeeds when a value is an instance of the requested fact/type, including parents declared with extend.",
-    "example": "instanceof(value: employee, type: Person)",
-    "params": [
-      {
-        "name": "value"
+        "name": "to"
       },
       {
         "name": "type"
+      },
+      {
+        "name": "properties"
       }
     ]
   },
-  "math:add": {
-    "heading": "math.add",
-    "description": "Adds two numbers and unifies the result with the output argument.",
-    "example": "math.add(lhs: 2, rhs: 3, result: total)",
+  "Unlink": {
+    "heading": "Unlink",
+    "description": "Removes a stored link. It takes the arguments of Link, and the link must be stored.",
+    "example": "Unlink(from: ada.id, to: research.id, properties: {kind: \"works_in\"}).",
     "params": [
       {
-        "name": "lhs"
+        "name": "from"
       },
       {
-        "name": "rhs"
+        "name": "to"
       },
       {
-        "name": "result"
+        "name": "properties"
       }
     ]
   },
-  "math:sub": {
-    "heading": "math.sub",
-    "description": "Subtracts right from left and unifies the result with the output argument.",
-    "example": "math.sub(lhs: 5, rhs: 2, result: result)",
+  "db:location": {
+    "heading": "db.location",
+    "description": "In init.fx: where the TidesDB store lives, relative to init.fx. A program that keeps facts needs an init.fx beside it.",
+    "example": "db.location(\"./data/felidae\").",
+    "params": []
+  },
+  "count": {
+    "heading": "count",
+    "description": "The number of facts of the class, or of the selection.",
+    "example": "Employee().count().",
+    "params": []
+  },
+  "all": {
+    "heading": "all",
+    "description": "Every fact of the class, or of the selection, in key order, as a typed List.",
+    "example": "Employee().where(name: \"Ada\").all().",
+    "params": []
+  },
+  "first": {
+    "heading": "first",
+    "description": "The first fact in key order, or nil (an Optional of the class).",
+    "example": "Employee().first().",
+    "params": []
+  },
+  "get": {
+    "heading": "get",
+    "description": "The fact at a position in key order (a member of the class, a selection, or a List).",
+    "example": "Employee().get(pos: 0).",
     "params": [
       {
-        "name": "lhs"
-      },
-      {
-        "name": "rhs"
-      },
-      {
-        "name": "result"
+        "name": "pos"
       }
     ]
   },
-  "math:mul": {
-    "heading": "math.mul",
-    "description": "Multiplies two numbers and unifies the result with the output argument.",
-    "example": "math.mul(lhs: 2, rhs: 3, result: result)",
+  "exists": {
+    "heading": "exists",
+    "description": "True when a fact matches the equality filters.",
+    "example": "Employee().exists(id: \"e1\").",
+    "params": [],
+    "noParams": true
+  },
+  "find": {
+    "heading": "find",
+    "description": "The fact that matches the equality filters, or nil.",
+    "example": "Employee().find(id: \"e1\").",
+    "params": [],
+    "noParams": true
+  },
+  "where": {
+    "heading": "where",
+    "description": "Starts a selection of the facts whose fields equal the given values. Nothing is read until a member such as count or all runs it.",
+    "example": "Employee().where(name: \"Ada\").",
+    "params": [],
+    "noParams": true
+  },
+  "AndWhere": {
+    "heading": "AndWhere",
+    "description": "Narrows a selection: the facts must also match these equality filters.",
+    "example": "Employee().where(name: \"Ada\").AndWhere(active: true).",
+    "params": [],
+    "noParams": true
+  },
+  "OrWhere": {
+    "heading": "OrWhere",
+    "description": "Widens a selection with another set of equality filters.",
+    "example": "Employee().where(name: \"Ada\").OrWhere(name: \"Grace\").",
+    "params": [],
+    "noParams": true
+  },
+  "limit": {
+    "heading": "limit",
+    "description": "Keeps the first n facts of a selection, in key order.",
+    "example": "Employee().where(active: true).limit(records: 10).",
     "params": [
       {
-        "name": "lhs"
-      },
-      {
-        "name": "rhs"
-      },
-      {
-        "name": "result"
+        "name": "records"
       }
     ]
   },
-  "math:div": {
-    "heading": "math.div",
-    "description": "Divides left by right and unifies the result with the output argument.",
-    "example": "math.div(lhs: 10, rhs: 2, result: result)",
+  "insert": {
+    "heading": "insert",
+    "description": "Stores a new fact from a map of field values. It is an error if the key already exists.",
+    "example": "Employee().insert(values: {id: \"e9\", name: \"Lin\"}).",
     "params": [
       {
-        "name": "lhs"
-      },
-      {
-        "name": "rhs"
-      },
-      {
-        "name": "result"
+        "name": "values"
       }
     ]
   },
-  "math:mod": {
-    "heading": "math.mod",
-    "description": "Computes the numeric remainder and unifies it with the output argument.",
-    "example": "math.mod(lhs: 10, rhs: 3, result: result)",
+  "update": {
+    "heading": "update",
+    "description": "Sets fields on every fact of a selection. A key field can never be updated.",
+    "example": "Employee().where(id: \"e2\").update(values: {name: \"Grace Hopper\"}).",
     "params": [
       {
-        "name": "lhs"
-      },
-      {
-        "name": "rhs"
-      },
-      {
-        "name": "result"
+        "name": "values"
       }
     ]
   },
-  "str:len": {
-    "heading": "str.len",
-    "description": "Unifies the output argument with the length of a string.",
-    "example": "str.len(data: \"hello\", equals: size)",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "equals"
-      }
-    ]
+  "delete": {
+    "heading": "delete",
+    "description": "Deletes every fact of a selection. A fact that a link names cannot be deleted until it is unlinked.",
+    "example": "Employee().where(id: \"e2\").delete().",
+    "params": []
   },
-  "str:contains": {
-    "heading": "str.contains",
-    "description": "Succeeds when the string contains the requested substring.",
-    "example": "str.contains(data: \"hello\", needle: \"ell\")",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "needle"
-      }
-    ]
+  "save": {
+    "heading": "save",
+    "description": "Writes an instance again (a class's own constructor calls it to store the fact).",
+    "example": "this.save().",
+    "params": []
   },
-  "str:concat": {
-    "heading": "str.concat",
-    "description": "Concatenates two strings and unifies the result with the output argument.",
-    "example": "str.concat(left: \"hello\", right: \" world\", result: text)",
+  "join": {
+    "heading": "join",
+    "description": "Walks the links from the selected facts to facts of another class and returns typed rows (left, right, properties, depth).",
+    "example": "Employee().join(to: Department, type: forward, properties: {kind: \"works_in\"}).",
     "params": [
       {
-        "name": "left"
-      },
-      {
-        "name": "right"
-      },
-      {
-        "name": "result"
-      }
-    ]
-  },
-  "str:lower": {
-    "heading": "str.lower",
-    "description": "Lowercases a string and unifies the result with the output argument.",
-    "example": "str.lower(data: \"HELLO\", equals: text)",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "equals"
-      }
-    ]
-  },
-  "str:upper": {
-    "heading": "str.upper",
-    "description": "Uppercases a string and unifies the result with the output argument.",
-    "example": "str.upper(data: \"hello\", equals: text)",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "equals"
-      }
-    ]
-  },
-  "str:trim": {
-    "heading": "str.trim",
-    "description": "Removes leading and trailing whitespace from a string.",
-    "example": "def text := str.trim(data: \"  hello  \").",
-    "params": [
-      {
-        "name": "data"
-      }
-    ]
-  },
-  "str:split": {
-    "heading": "str.split",
-    "description": "Splits a string by a non-empty delimiter and returns an array of strings.",
-    "example": "def parts := str.split(data: \"a,b,c\", delimiter: \",\").",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "delimiter"
-      }
-    ]
-  },
-  "str:replace": {
-    "heading": "str.replace",
-    "description": "Replaces all occurrences of a search string with a replacement string.",
-    "example": "def text := str.replace(data: \"a-b\", search: \"-\", replacement: \":\").",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "search"
-      },
-      {
-        "name": "replacement"
-      }
-    ]
-  },
-  "str:startsWith": {
-    "heading": "str.startsWith",
-    "description": "Returns 1.0 when a string starts with the requested prefix, otherwise 0.0.",
-    "example": "def ok := str.startsWith(data: \"Alice\", prefix: \"Al\").",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "prefix"
-      }
-    ]
-  },
-  "str:endsWith": {
-    "heading": "str.endsWith",
-    "description": "Returns 1.0 when a string ends with the requested suffix, otherwise 0.0.",
-    "example": "def ok := str.endsWith(data: \"Alice\", suffix: \"ice\").",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "suffix"
-      }
-    ]
-  },
-  "array:get": {
-    "heading": "array.get",
-    "description": "Reads an array item by zero-based index and unifies it with the output argument.",
-    "example": "array.get(data: [1, 2, 3], position: 0, access: value)",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "position"
-      },
-      {
-        "name": "access"
-      }
-    ]
-  },
-  "array:len": {
-    "heading": "array.len",
-    "description": "Unifies the output argument with the number of array items.",
-    "example": "array.len(data: [1, 2, 3], access: size)",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "access"
-      }
-    ]
-  },
-  "array:push": {
-    "heading": "array.push",
-    "description": "Creates an array with one appended value and unifies it with the output argument.",
-    "example": "array.push(data: [1, 2], value: 3, result: out)",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "value"
-      },
-      {
-        "name": "result"
-      }
-    ]
-  },
-  "fn:array": {
-    "heading": "fn:array",
-    "description": "Creates an immutable Felidae array value from the data argument.",
-    "example": "def array1 := fn:array(data: [1, 2, 3, 4]).",
-    "params": [
-      {
-        "name": "data"
-      }
-    ]
-  },
-  "fn:pair": {
-    "heading": "fn:pair",
-    "description": "Creates an immutable pair value with first and last fields.",
-    "example": "def pair := fn:pair(first: \"web\", last: 2.0).",
-    "params": [
-      {
-        "name": "first"
-      },
-      {
-        "name": "last"
-      }
-    ]
-  },
-  "fn:tuple": {
-    "heading": "fn:tuple",
-    "description": "Creates an immutable tuple-style value from named fields.",
-    "example": "def tuple := fn:tuple(first: \"hello\", second: \"world\").",
-    "params": [
-      {
-        "name": "first"
-      },
-      {
-        "name": "second"
-      }
-    ]
-  },
-  "pair:first": {
-    "heading": "pair:first",
-    "description": "Unifies the output argument with the first item of a pair.",
-    "example": "pair:first(data: fn:pair(first: \"web\", last: 2), access: key)",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "access"
-      }
-    ]
-  },
-  "pair:second": {
-    "heading": "pair:second",
-    "description": "Unifies the output argument with the second item of a pair.",
-    "example": "pair:second(data: fn:pair(first: \"web\", last: 2), access: value)",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "access"
-      }
-    ]
-  },
-  "json:parse": {
-    "heading": "json.parse",
-    "description": "Parses JSON text into Felidae map/array values.",
-    "example": "json.parse(data: \"{\\\"name\\\":\\\"Alice\\\"}\", access: object)",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "access"
-      }
-    ]
-  },
-  "json:get": {
-    "heading": "json.get",
-    "description": "Reads a key from a JSON/map value and unifies it with the output argument.",
-    "example": "json.get(data: object, key: \"name\", access: value)",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "key"
-      },
-      {
-        "name": "access"
-      }
-    ]
-  },
-  "json:has": {
-    "heading": "json.has",
-    "description": "Returns 1.0 when a JSON/map value contains the requested key, otherwise 0.0.",
-    "example": "def ok := json.has(data: object, key: \"name\").",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "key"
-      }
-    ]
-  },
-  "json:keys": {
-    "heading": "json.keys",
-    "description": "Returns an array containing the keys of a JSON/map value.",
-    "example": "def keys := json.keys(data: object).",
-    "params": [
-      {
-        "name": "data"
-      }
-    ]
-  },
-  "json:set": {
-    "heading": "json.set",
-    "description": "Returns a copy of a JSON/map value with one key added or replaced.",
-    "example": "def next := json.set(data: object, key: \"office\", value: \"SEA\").",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "key"
-      },
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "json:remove": {
-    "heading": "json.remove",
-    "description": "Returns a copy of a JSON/map value without the requested key.",
-    "example": "def next := json.remove(data: object, key: \"role\").",
-    "params": [
-      {
-        "name": "data"
-      },
-      {
-        "name": "key"
-      }
-    ]
-  },
-  "json:toText": {
-    "heading": "json.toText",
-    "description": "Serializes Felidae values, arrays, maps, and fact-like rows into JSON text.",
-    "example": "def jsonText := json.toText(data: rows).",
-    "params": [
-      {
-        "name": "data"
-      }
-    ]
-  },
-  "csv:parse": {
-    "heading": "csv.parse",
-    "description": "Parses CSV text in the direct interpreter and returns an array of row maps.",
-    "example": "def rows := csv.parse(data: csvText).",
-    "params": [
-      {
-        "name": "data"
-      }
-    ]
-  },
-  "csv:toFacts": {
-    "heading": "csv.toFacts",
-    "description": "Parses CSV text into fact maps of the requested source-level type.",
-    "example": "def schools := csv.toFacts(data: csvText, type: \"School\").",
-    "params": [
-      {
-        "name": "data"
+        "name": "to"
       },
       {
         "name": "type"
-      }
-    ]
-  },
-  "csv:toText": {
-    "heading": "csv.toText",
-    "description": "Writes an array of row maps back to CSV text in the direct interpreter.",
-    "example": "def text := csv.toText(data: rows).",
-    "params": [
-      {
-        "name": "data"
-      }
-    ]
-  },
-  "csv:toFelidaeFacts": {
-    "heading": "csv.toFelidaeFacts",
-    "description": "Converts row maps into Felidae fact declaration text.",
-    "example": "def facts := csv.toFelidaeFacts(data: rows, type: \"School\").",
-    "params": [
-      {
-        "name": "data"
       },
       {
-        "name": "type"
+        "name": "properties"
       }
     ]
   },
-  "console:readLine": {
-    "heading": "console.readLine",
-    "description": "Reads one line from standard input using the native C++ console implementation.",
-    "example": "def line := console.readLine().",
-    "params": []
-  },
-  "console:write": {
-    "heading": "console.write",
-    "description": "Writes a value to standard output without a trailing newline.",
-    "example": "def status := console.write(value: \"hello\").",
+  "recursive_join": {
+    "heading": "recursive_join",
+    "description": "Follows links breadth first up to max_depth and gives each reachable fact of the class once, at its least depth. max_depth is required.",
+    "example": "Employee().recursive_join(to: Employee, min_depth: 1, max_depth: 5).",
     "params": [
       {
-        "name": "value"
-      }
-    ]
-  },
-  "console:writeLine": {
-    "heading": "console.writeLine",
-    "description": "Writes a value to standard output with a trailing newline.",
-    "example": "def status := console.writeLine(value: \"hello\").",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "system:print": {
-    "heading": "system.print",
-    "description": "Prints a value to standard output with a trailing newline. The system library is available automatically.",
-    "example": "def status := system.print(value: \"hello\").",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "file:readFile": {
-    "heading": "file.readFile",
-    "description": "Reads a bounded file as text through the direct interpreter file service.",
-    "example": "def text := file.readFile(file: \"data.txt\").",
-    "params": [
-      {
-        "name": "file"
-      }
-    ]
-  },
-  "file:readLines": {
-    "heading": "file.readLines",
-    "description": "Reads a file and returns an immutable array of lines.",
-    "example": "def lines := file.readLines(path: \"data.txt\").",
-    "params": [
-      {
-        "name": "path"
-      }
-    ]
-  },
-  "file:readLine": {
-    "heading": "file.readLine",
-    "description": "Reads a single zero-based line from a file.",
-    "example": "def line := file.readLine(path: \"data.txt\", line: 0).",
-    "params": [
-      {
-        "name": "path"
+        "name": "to"
       },
       {
-        "name": "line"
-      }
-    ]
-  },
-  "file:writeFile": {
-    "heading": "file.writeFile",
-    "description": "Writes text to a file, replacing existing content.",
-    "example": "def status := file.writeFile(path: \"data.txt\", data: \"hello\").",
-    "params": [
-      {
-        "name": "path"
+        "name": "min_depth"
       },
       {
-        "name": "data"
+        "name": "max_depth"
       }
     ]
   },
-  "file:writeLines": {
-    "heading": "file.writeLines",
-    "description": "Writes an array of strings to a file, one line per item.",
-    "example": "def status := file.writeLines(path: \"data.txt\", data: [\"a\", \"b\"]).",
+  "shortest_path": {
+    "heading": "shortest_path",
+    "description": "For each selected fact, the row for a target fact at the fewest links. max_depth is required.",
+    "example": "Employee().shortest_path(to: grace, max_depth: 8).",
     "params": [
       {
-        "name": "path"
+        "name": "to"
       },
       {
-        "name": "data"
+        "name": "max_depth"
       }
     ]
   },
-  "file:appendFile": {
-    "heading": "file.appendFile",
-    "description": "Appends text to a file through the native C++ file implementation.",
-    "example": "def status := file.appendFile(path: \"data.txt\", data: \"more\").",
+  "sum": {
+    "heading": "sum",
+    "description": "Sums a numeric field named in a string; the type is the field's (0 for no facts).",
+    "example": "Reading().sum(field: \"value\").",
     "params": [
       {
-        "name": "path"
-      },
-      {
-        "name": "data"
+        "name": "field"
       }
     ]
   },
-  "file:exists": {
-    "heading": "file.exists",
-    "description": "Returns 1.0 when a path exists, otherwise 0.0.",
-    "example": "def ok := file.exists(path: \"data.txt\").",
+  "average": {
+    "heading": "average",
+    "description": "The average of a numeric field, an Optional of Double (nil for no facts).",
+    "example": "Reading().average(field: \"value\").",
     "params": [
       {
-        "name": "path"
+        "name": "field"
       }
     ]
   },
-  "file:deleteFile": {
-    "heading": "file.deleteFile",
-    "description": "Deletes a file and returns 1.0 when a file was removed, otherwise 0.0.",
-    "example": "def removed := file.deleteFile(path: \"data.txt\").",
+  "min": {
+    "heading": "min",
+    "description": "The smallest value of a numeric field, an Optional of the field's type.",
+    "example": "Reading().min(field: \"value\").",
     "params": [
       {
-        "name": "path"
+        "name": "field"
       }
     ]
   },
-  "http:get": {
-    "heading": "http.get",
-    "description": "Fetches a URL through the native cpp-httplib-backed HTTP module.",
-    "example": "def body := http.get(url: \"https://example.com\").",
+  "max": {
+    "heading": "max",
+    "description": "The largest value of a numeric field, an Optional of the field's type.",
+    "example": "Reading().max(field: \"value\").",
     "params": [
       {
-        "name": "url"
+        "name": "field"
       }
     ]
   },
-  "http:post": {
-    "heading": "http.post",
-    "description": "Sends a POST request through the native cpp-httplib-backed HTTP module.",
-    "example": "def body := http.post(url: \"http://127.0.0.1:8080/\", body: \"hello\").",
+  "order_by": {
+    "heading": "order_by",
+    "description": "Sorts a list of maps ascending by a numeric field, stably. The maps must all have the same fields.",
+    "example": "rows.order_by(field: \"v\").",
     "params": [
       {
-        "name": "url"
-      },
-      {
-        "name": "body"
-      }
-    ]
-  },
-  "http:put": {
-    "heading": "http.put",
-    "description": "Sends a PUT request through the native cpp-httplib-backed HTTP module.",
-    "example": "def body := http.put(url: \"http://127.0.0.1:8080/\", body: \"hello\").",
-    "params": [
-      {
-        "name": "url"
-      },
-      {
-        "name": "body"
-      }
-    ]
-  },
-  "http:delete": {
-    "heading": "http.delete",
-    "description": "Sends a DELETE request through the native cpp-httplib-backed HTTP module.",
-    "example": "def body := http.delete(url: \"http://127.0.0.1:8080/\").",
-    "params": [
-      {
-        "name": "url"
-      }
-    ]
-  },
-  "http:serveStatic": {
-    "heading": "http.serveStatic",
-    "description": "Starts a blocking local server whose GET, POST, PUT, and DELETE / endpoints return the provided response.",
-    "example": "def status := http.serveStatic(host: \"127.0.0.1\", port: 8080, response: \"Hello World\").",
-    "params": [
-      {
-        "name": "host"
-      },
-      {
-        "name": "port"
-      },
-      {
-        "name": "response"
-      }
-    ]
-  },
-  "process:platform": {
-    "heading": "process.platform",
-    "description": "Returns the current OS platform name: windows, linux, macos, or unknown.",
-    "example": "def platform := process.platform().",
-    "params": []
-  },
-  "process:exec": {
-    "heading": "process.exec",
-    "description": "Runs an explicit shell command and returns captured output. Use only in trusted scripts/tests.",
-    "example": "def output := process.exec(command: \"echo hello\").",
-    "params": [
-      {
-        "name": "command"
-      }
-    ]
-  },
-  "process:sleep": {
-    "heading": "process.sleep",
-    "description": "Sleeps for the provided number of milliseconds.",
-    "example": "def ready := process.sleep(milliseconds: 800).",
-    "params": [
-      {
-        "name": "milliseconds"
-      }
-    ]
-  },
-  "math:sqrt": {
-    "heading": "math.sqrt",
-    "description": "Returns the square root of a number.",
-    "example": "def root := math.sqrt(value: 81).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:pow": {
-    "heading": "math.pow",
-    "description": "Raises a base number to an exponent.",
-    "example": "def value := math.pow(base: 2, exponent: 8).",
-    "params": [
-      {
-        "name": "base"
-      },
-      {
-        "name": "exponent"
-      }
-    ]
-  },
-  "math:sin": {
-    "heading": "math.sin",
-    "description": "Returns the sine of a numeric value.",
-    "example": "def value := math.sin(value: angle).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:cos": {
-    "heading": "math.cos",
-    "description": "Returns the cosine of a numeric value.",
-    "example": "def value := math.cos(value: angle).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:tan": {
-    "heading": "math.tan",
-    "description": "Returns the tangent of a numeric value.",
-    "example": "def value := math.tan(value: angle).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:asin": {
-    "heading": "math.asin",
-    "description": "Returns the arcsine of a numeric value.",
-    "example": "def value := math.asin(value: ratio).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:acos": {
-    "heading": "math.acos",
-    "description": "Returns the arccosine of a numeric value.",
-    "example": "def value := math.acos(value: ratio).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:atan": {
-    "heading": "math.atan",
-    "description": "Returns the arctangent of a numeric value.",
-    "example": "def value := math.atan(value: slope).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:atan2": {
-    "heading": "math.atan2",
-    "description": "Returns the arctangent of y/x using both signs to select the quadrant.",
-    "example": "def value := math.atan2(y: y, x: x).",
-    "params": [
-      {
-        "name": "y"
-      },
-      {
-        "name": "x"
-      }
-    ]
-  },
-  "math:log": {
-    "heading": "math.log",
-    "description": "Returns the natural logarithm of a number.",
-    "example": "def value := math.log(value: 10).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:log10": {
-    "heading": "math.log10",
-    "description": "Returns the base-10 logarithm of a number.",
-    "example": "def value := math.log10(value: 100).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:exp": {
-    "heading": "math.exp",
-    "description": "Returns e raised to the provided numeric value.",
-    "example": "def value := math.exp(value: 2).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:abs": {
-    "heading": "math.abs",
-    "description": "Returns the absolute value of a number.",
-    "example": "def value := math.abs(value: -3).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:floor": {
-    "heading": "math.floor",
-    "description": "Rounds a number down to the nearest integer value.",
-    "example": "def value := math.floor(value: 3.9).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:ceil": {
-    "heading": "math.ceil",
-    "description": "Rounds a number up to the nearest integer value.",
-    "example": "def value := math.ceil(value: 3.1).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:round": {
-    "heading": "math.round",
-    "description": "Rounds a number to the nearest integer value.",
-    "example": "def value := math.round(value: 3.5).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "math:pi": {
-    "heading": "math.pi",
-    "description": "Returns the pi constant.",
-    "example": "def value := math.pi().",
-    "params": []
-  },
-  "math:e": {
-    "heading": "math.e",
-    "description": "Returns Euler's number.",
-    "example": "def value := math.e().",
-    "params": []
-  },
-  "math:random": {
-    "heading": "math.random",
-    "description": "Returns a random floating-point number between min and max.",
-    "example": "def value := math.random(min: 0, max: 1).",
-    "params": [
-      {
-        "name": "min"
-      },
-      {
-        "name": "max"
-      }
-    ]
-  },
-  "ml:sigmoid": {
-    "heading": "ml.sigmoid",
-    "description": "Applies the sigmoid activation function to one numeric value.",
-    "example": "def value := ml.sigmoid(value: 0).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "ml:relu": {
-    "heading": "ml.relu",
-    "description": "Applies the ReLU activation function to one numeric value.",
-    "example": "def value := ml.relu(value: score).",
-    "params": [
-      {
-        "name": "value"
-      }
-    ]
-  },
-  "ml:dot": {
-    "heading": "ml.dot",
-    "description": "Computes the dot product of two numeric arrays of equal length.",
-    "example": "def score := ml.dot(left: [1, 2, 3], right: [4, 5, 6]).",
-    "params": [
-      {
-        "name": "left"
-      },
-      {
-        "name": "right"
-      }
-    ]
-  },
-  "ml:meanSquaredError": {
-    "heading": "ml.meanSquaredError",
-    "description": "Computes mean squared error for two numeric arrays of equal length.",
-    "example": "def loss := ml.meanSquaredError(left: [1, 2], right: [1, 3]).",
-    "params": [
-      {
-        "name": "left"
-      },
-      {
-        "name": "right"
-      }
-    ]
-  },
-  "thread:createThread": {
-    "heading": "thread.createThread",
-    "description": "Creates a handle for running a method on an independent interpreter snapshot.",
-    "example": "def t1 := thread.createThread(function: \"Worker\").",
-    "params": [
-      {
-        "name": "function"
-      }
-    ]
-  },
-  "thread:start": {
-    "heading": "thread.start",
-    "description": "Starts a Felidae thread handle and returns its lifecycle status.",
-    "example": "def status := thread.start(thread: t1).",
-    "params": [
-      {
-        "name": "thread"
-      }
-    ]
-  },
-  "thread:result": {
-    "heading": "thread.result",
-    "description": "Waits for a Felidae thread to finish and returns the worker method result.",
-    "example": "def result := thread.result(thread: t1).",
-    "params": [
-      {
-        "name": "thread"
-      }
-    ]
-  },
-  "thread:status": {
-    "heading": "thread.status",
-    "description": "Reads the current status of a Felidae thread handle.",
-    "example": "def status := thread.status(thread: t1).",
-    "params": [
-      {
-        "name": "thread"
+        "name": "field"
       }
     ]
   }

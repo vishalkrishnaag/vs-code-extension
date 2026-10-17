@@ -1,7 +1,28 @@
 # Felidae for VS Code
 
 Language support for .fx files: highlighting, completion, snippets, folding,
-formatting, symbol navigation, diagnostics, Run, and Debug.
+formatting, symbol navigation, diagnostics, Run, Debug, and a REPL for the Felidae compiler (felidae runs a program
+by compiling it to JVM classes).
+
+## What's new in 0.4.0
+
+The extension follows the Java compiler (`felidae` compiles a program to JVM class files and runs them).
+
+- **Debugging on the JVM.** *Debug* runs `felidae --debug --port 0 program.fx`: the compiler writes the source
+  file, a line for every statement and the Felidae names of parameters and bindings into the classes, and the
+  extension's debug adapter (`src/debug`) debugs the program's JVM over JDWP. Breakpoints on `.fx` lines (also in
+  classes that load later), step over/in/out, pause, the call stack with `Class.method` names, locals and
+  object fields, hover and *Debug Console* evaluation of variable names. Values are shown the way `print` shows them
+  (`Box(n: 5, tags: [])`, atoms without quotes, `nil`). Attach to a program started with `felidae --debug` with a
+  `"request": "attach"` configuration. No other VS Code extension is needed.
+- **Cells and Run Query** run from a generated program that imports your file (`cell_run.fx`, removed afterwards),
+  because `--query` no longer exists.
+- **REPL.** *Open REPL* starts `felidae-repl`: it asks whether to append (all code is kept in `repl.fx` and the whole
+  file runs each time) or not (each input replaces the file).
+- **Language.** PascalCase types and generics, `defprivate`, `static class`, `new`, `@mixfix`, `@override`, `Link`,
+  `Unlink`; new snippets; new completion docs for the builtins and class members; the Gradle layout
+  (`build/java/cli/install/felidae/bin/felidae`) is found automatically.
+- **Removed:** the ranking models (trained on the old language) and the generators for the old library list.
 
 ## What's new in 0.3.2
 
@@ -141,38 +162,27 @@ Editing an interpreted language, where the loop is edit, try, fix:
 - **Clearer diagnostics.** Parse errors always report `line N, column M`, and
   errors from imported files name the file.
 
-## Interpreter configuration
+## The felidae command
 
-One executable, `felidae` (`felidae.exe` on Windows), provides execution,
-debugging, parse diagnostics, and AST-derived symbol metadata. Configure it in Settings:
-
-```json
-{
-  "felidae.interpreterPath": "dist/bin/felidae"
-}
-```
-
-Use an absolute path or a path relative to the workspace folder. On Windows,
-use `dist/bin/felidae.exe`. In WSL, install the extension in the WSL window
-and configure the Linux executable. `FELIDAE_PATH` is used when the setting
-is empty; otherwise staged release locations are searched.
-
-An optional `.vscode/felidae.json` overrides the setting for that workspace:
+`felidae` compiles a program to JVM class files beside the source and runs them; the same command provides
+`--check-json` (parse diagnostics and symbols), `--debug` (a suspended JVM for a debugger) and `--compile`.
+Build it with `./gradlew installDist` in the Felidae repository (JDK 25); the extension finds
+`build/java/cli/install/felidae/bin/felidae` (`felidae.bat` on Windows) by itself. To use another one:
 
 ```json
 {
-  "interpreterPath": "dist/bin/felidae"
+  "felidae.interpreterPath": "/opt/felidae/bin/felidae"
 }
 ```
 
-Reload the window after changing the executable so extension commands use the new path.
+Use an absolute path or a path relative to the workspace folder. `FELIDAE_PATH` is used when the setting is empty.
+An optional `.vscode/felidae.json` overrides the setting for that workspace (`{"interpreterPath": "..."}`).
+In WSL, install the extension in the WSL window and configure the Linux command. Reload the window after changing it.
 
 ## Run and Debug
 
-Use the Run/Debug buttons above main(...) or the corresponding Felidae commands.
-Run opens Command Prompt on Windows and /bin/sh on Linux/macOS. Debug launches
-the interpreter directly over its stdin/stdout protocol. Source files execute
-directly; no program binary is generated.
+Use the Run/Debug buttons above `main()` or the Felidae commands. Run opens a terminal (Command Prompt on Windows,
+/bin/sh elsewhere). Debug starts the program under the debugger described above:
 
 ```json
 {
@@ -180,19 +190,17 @@ directly; no program binary is generated.
   "request": "launch",
   "name": "Debug Felidae",
   "program": "${file}",
-  "stopOnEntry": true
+  "stopOnEntry": false
 }
 ```
 
-The debugger supports stepping, breakpoints, and live locals. Set stopOnEntry
-to false to continue after initialization. The current native protocol reports
-a line and one frame; imported source locations and full stacks remain limited.
-Debug Console accepts variable names; use **Felidae: Run Query** for
-period-terminated bucket expressions.
+Launch options: `program`, `interpreterPath`, `args` (for `main`), `classpath` (Java libraries, `--classpath`),
+`sourceDirs` (extra folders for imported sources) and `stopOnEntry`. A program that keeps facts needs the
+`init.fx` beside it, as for any run. The methods of a class `Box` appear as `Box.twice` in the stack; the
+embedded fact store and list helpers have no lines, so stepping never enters them.
 
-Diagnostics and document symbols use `felidae --check-json --stdin file.fx`.
-There is no extension-owned language server or parallel semantic parser. Run and
-Debug execute without an additional validation confirmation dialog.
+Diagnostics and document symbols use `felidae --check-json --stdin file.fx`. There is no extension-owned
+language server or parallel semantic parser.
 
 ## Development
 
@@ -215,6 +223,7 @@ cd vs-code-extension
 npx vsce package --out ../build/extensions/felidae-vscode.vsix
 ```
 
-Focused launch checks: `npm run test:runtime`. Windows/macOS shell selection is
+Tests: `npm test` (the debug session test needs `./install.sh` in the Felidae repository, which builds
+`build/java/felidae.jar`; it is skipped without it). Focused launch checks: `npm run test:runtime`. Windows/macOS shell selection is
 tested with mocks; native installation and shell execution need verification
 on those platforms.

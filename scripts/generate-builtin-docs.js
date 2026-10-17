@@ -32,7 +32,7 @@ function findCallParen(example, callName) {
     if (at < 0) return -1;
     const before = at === 0 ? "" : example[at - 1];
     // Reject a partial match inside a longer identifier/qualified name.
-    if (/[A-Za-z0-9_.:]/.test(before)) {
+    if (/[A-Za-z0-9_:]/.test(before)) {
       from = at + callName.length;
       continue;
     }
@@ -99,8 +99,9 @@ function extractParams(heading, example) {
 }
 
 function main() {
-  const repoRoot = path.resolve(__dirname, "..", "..");
-  const sourcePath = path.join(repoRoot, "docs", "builtin-docs.json");
+  // The source of truth is docs/builtin-docs.json of the Felidae repository, which holds this extension as
+  // dependencies/vs-code-extension; FELIDAE_DOCS names it when the extension is built elsewhere.
+  const sourcePath = process.env.FELIDAE_DOCS || path.join(__dirname, "..", "..", "..", "docs", "builtin-docs.json");
   const destPath = path.join(__dirname, "..", "resources", "builtin-docs.json");
 
   if (!fs.existsSync(sourcePath)) {
@@ -121,7 +122,8 @@ function main() {
   let withParams = 0;
   for (const [key, entry] of Object.entries(docs)) {
     if (!entry || typeof entry !== "object") continue;
-    const params = extractParams(entry.heading ?? key, entry.example ?? "");
+    // noParams: the named arguments are field names of the class, not parameters of the member.
+    const params = entry.noParams ? [] : extractParams(entry.heading ?? key, entry.example ?? "");
     entry.params = params;
     if (params.length) withParams++;
   }

@@ -6,9 +6,10 @@
 // a time, and ends when that process ends. There is no background process, no
 // session and no retry: whatever the interpreter reports is what is shown.
 
+import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
-import { BlockPair, Cell, RESULT_FUNCTION, bindingProgram, buildCellExpression, cellAtLine, defaultArguments, hashText, splitCells } from "./cells";
+import { BlockPair, Cell, CELL_FILE, buildCellExpression, cellAtLine, cellProgram, defaultArguments, hashText, splitCells } from "./cells";
 import { CellRunner, describeCellRun } from "./cellRunner";
 import { CellMetrics, summarizeMetrics } from "./metrics";
 
@@ -42,6 +43,12 @@ export function registerCells(context: vscode.ExtensionContext, host: CellHost):
 }
 
 const cellKey = (cell: Cell) => cell.kind + ":" + cell.name;
+
+// The generated cell program and the class file `felidae` wrote beside it.
+function removeCellFiles(cellFile: string): void {
+  fs.rmSync(cellFile, { force: true });
+  fs.rmSync(cellFile.replace(/\.fx$/, ".class"), { force: true });
+}
 
 class CellSession {
   private readonly runner = new CellRunner();
@@ -200,12 +207,10 @@ class CellSession {
     const hash = this.sourceHash(document, cell);
     this.setResult(document, cell, { state: "running", expression, text: "", sourceHash: hash });
     const timeoutMs = this.timeoutMs(document);
-    // A binding is read through a generated function (see bindingProgram); every
-    // other cell is a plain --query on the file.
-    const readsBinding = cell.kind === "binding";
-    const processArgs = readsBinding
-      ? [document.uri.fsPath, "--stdin", "--query", RESULT_FUNCTION + "().", "--metrics-json"]
-      : [document.uri.fsPath, "--query", expression, "--metrics-json"];
+    // The cell runs from a generated program beside the document that imports it (see cellProgram).
+    const cellFile = path.join(path.dirname(document.uri.fsPath), CELL_FILE);
+    fs.writeFileSync(cellFile, cellProgram(path.basename(document.uri.fsPath), expression));
+    const processArgs = [cellFile];
     const commandLine = [interpreter, ...processArgs];
     this.host.log("info", "cell: " + commandLine.join(" "));
 
@@ -216,16 +221,13 @@ class CellSession {
         command: interpreter,
         args: processArgs,
         cwd: path.dirname(document.uri.fsPath),
-        timeoutMs,
-        stdin: readsBinding ? bindingProgram(document.getText(), cell.name) : undefined
+        timeoutMs
       });
       const described = describeCellRun(run, timeoutMs);
-      if (!described.ok && /--stdin is valid only with --check-json/.test(described.text)) {
-        described.text += "\nReading a binding needs a felidae build that can run a program from stdin (--stdin). Rebuild the interpreter.";
-      }
       result = { state: described.ok ? "ok" : "error", expression, text: described.text, elapsedMs: run.elapsedMs, metrics: run.metrics, sourceHash: hash };
     } finally {
       this.setPending(-1);
+      removeCellFiles(cellFile);
     }
     this.setResult(document, cell, result);
     this.logCell(document, cell, result);
@@ -273,16 +275,27 @@ class CellSession {
     if (document.isDirty) await document.save();
     const interpreter = this.host.resolveInterpreterPath(document.uri);
     if (!(await this.host.ensureInterpreterInstalled(interpreter))) return;
-    // felidae program.fx --debug --query "expression."
-    await vscode.debug.startDebugging(vscode.workspace.getWorkspaceFolder(document.uri), {
+    // felidae --debug cell_run.fx: the generated program that imports the document and runs the cell. Its
+    // files go when the session ends.
+    const cellFile = path.join(path.dirname(document.uri.fsPath), CELL_FILE);
+    fs.writeFileSync(cellFile, cellProgram(path.basename(document.uri.fsPath), expression));
+    const folder = vscode.workspace.getWorkspaceFolder(document.uri);
+    const started = await vscode.debug.startDebugging(folder, {
       type: "felidae",
       request: "launch",
       name: "Debug " + cell.name,
-      program: document.uri.fsPath,
+      program: cellFile,
       interpreterPath: interpreter,
-      stopOnEntry: true,
-      query: expression
+      stopOnEntry: false
     });
+    if (!started) removeCellFiles(cellFile);
+    else {
+      const ended = vscode.debug.onDidTerminateDebugSession((session) => {
+        if (session.name !== "Debug " + cell.name) return;
+        removeCellFiles(cellFile);
+        ended.dispose();
+      });
+    }
   }
 
   private timeoutMs(document: vscode.TextDocument): number {

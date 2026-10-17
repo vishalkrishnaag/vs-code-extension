@@ -1,27 +1,42 @@
 {
   "Import": {
     "prefix": "import",
-    "body": ["import \"${1:file.fx}\"."],
+    "body": [
+      "import \"${1:file.fx}\"."
+    ],
     "description": "Import a Felidae source file"
   },
-  "Persistent Fact": {
-    "prefix": "fact",
-    "body": ["def ${1:employee}(${2:id}: ${3:\"e1\"}, ${4:state}: ${5:active})."],
-    "description": "Declare a persistent fact seed"
+  "Java Import": {
+    "prefix": "importjava",
+    "body": [
+      "import \"java:${1:java.util.ArrayList}\"."
+    ],
+    "description": "Import a Java class by its simple name"
   },
   "Immutable Binding": {
     "prefix": "binding",
-    "body": ["def ${1:value}${2:: ${3:any}} := ${4:expression}."],
-    "description": "Declare an immutable interpreter binding"
+    "body": [
+      "def ${1:value}${2:: ${3:Integer}} := ${4:expression}."
+    ],
+    "description": "Declare an immutable binding"
   },
   "Function": {
     "prefix": "function",
     "body": [
-      "def ${1:name}(${2:value}: ${3:any}) =>",
+      "def ${1:name}(${2:value}: ${3:Integer}) =>",
       "    ${4:expression}.",
       "end"
     ],
-    "description": "Declare an implicit-result function"
+    "description": "Declare a function; its last expression is the result"
+  },
+  "Private Function": {
+    "prefix": "defprivate",
+    "body": [
+      "defprivate ${1:name}(${2:value}: ${3:Integer}) =>",
+      "    ${4:expression}.",
+      "end"
+    ],
+    "description": "Declare a function only this file can use"
   },
   "Main": {
     "prefix": "main",
@@ -35,17 +50,79 @@
   "Class": {
     "prefix": "class",
     "body": [
-      "class ${1:entity}",
+      "class ${1:Entity}",
       "    key(${2:id}).",
-      "    def ${2:id}: ${3:string}.",
-      "    def ${4:enabled}: ${5:bool} := ${6:true}.",
+      "    def ${2:id}: ${3:String}.",
+      "    def ${4:enabled}: ${5:Boolean} := ${6:true}.",
       "end"
     ],
-    "description": "Declare a RocksDB-backed fact schema"
+    "description": "Declare a class; when every field is storable its instances are facts stored in TidesDB"
+  },
+  "Subclass": {
+    "prefix": "subclass",
+    "body": [
+      "class ${1:Student} extends ${2:Person}",
+      "    def ${3:grade}: ${4:Integer}.",
+      "end"
+    ],
+    "description": "Declare a class with a superclass"
+  },
+  "Static Class": {
+    "prefix": "staticclass",
+    "body": [
+      "static class ${1:Tally}",
+      "    def ${2:total}: ${3:Integer} := ${4:0}.",
+      "",
+      "    def ${5:add}(${6:amount}: ${3:Integer}) =>",
+      "        this.${2:total} := this.${2:total} + ${6:amount}.",
+      "        this.${2:total}.",
+      "    end",
+      "end"
+    ],
+    "description": "Declare a class with class-level methods and shared fields; it is never instantiated"
+  },
+  "Constructor": {
+    "prefix": "constructor",
+    "body": [
+      "def ${1:Entity}(${2:id}: ${3:String}) =>",
+      "    this.${2:id} := ${2:id}.",
+      "    this.save().",
+      "end"
+    ],
+    "description": "A class's own constructor: a method named like the class"
+  },
+  "New Fact": {
+    "prefix": "new",
+    "body": [
+      "new ${1:Entity}(${2:id}: ${3:\"e1\"})."
+    ],
+    "description": "Create an instance; a fact class writes the fact to TidesDB"
+  },
+  "Mixfix Operator": {
+    "prefix": "mixfix",
+    "body": [
+      "@mixfix(pattern: '{${1:left}: ${2:Integer}} ${3:combine} {${4:right}: ${2:Integer}}')",
+      "def ${5:combineNumbers}() =>",
+      "    ${6:left + right}.",
+      "end"
+    ],
+    "description": "Declare an operator: the typed captures of the pattern are the parameters"
+  },
+  "Override": {
+    "prefix": "override",
+    "body": [
+      "@override",
+      "def ${1:name}(${2:value}: ${3:Integer}) =>",
+      "    ${4:expression}.",
+      "end"
+    ],
+    "description": "Override a method of the superclass"
   },
   "Conditional Expression": {
     "prefix": "condition",
-    "body": ["${1:left} = ${2:right} then ${3:value} else ${4:fallback}."],
+    "body": [
+      "${1:left} = ${2:right} then ${3:value} else ${4:fallback}."
+    ],
     "description": "Create a conditional expression"
   },
   "For Loop": {
@@ -55,7 +132,7 @@
       "    ${3:expression}.",
       "end"
     ],
-    "description": "Iterate a list or lazy query cursor"
+    "description": "Iterate a list, a range or a selection of facts"
   },
   "While Loop": {
     "prefix": "while",
@@ -72,11 +149,12 @@
       "switch ${1:value}",
       "case ${2:expected} then",
       "    ${3:expression}.",
+      "    break.",
       "default then",
       "    ${4:fallback}.",
       "end"
     ],
-    "description": "Create an explicit-break switch block"
+    "description": "A switch block: a case falls through to the next until break"
   },
   "Try Catch": {
     "prefix": "try",
@@ -87,37 +165,70 @@
       "    ${3:error.message}.",
       "end"
     ],
-    "description": "Catch a Felidae runtime exception"
+    "description": "Catch an exception: error is (kind: Atom, message: String)"
   },
   "Throw": {
     "prefix": "throw",
-    "body": ["throw(kind: ${1:runtime}, message: ${2:\"failed\"})."],
-    "description": "Raise a structured exception"
+    "body": [
+      "throw(kind: ${1:runtime}, message: ${2:\"failed\"})."
+    ],
+    "description": "Raise an exception; its type is Nothing"
   },
-  "Bucket Query": {
+  "Query": {
     "prefix": "query",
-    "body": ["${1:employee}.where(${2:active}: ${3:true})."],
-    "description": "Create a period-terminated RocksDB bucket query"
+    "body": [
+      "${1:Employee}().where(${2:active}: ${3:true}).all()."
+    ],
+    "description": "Select facts of a class and read them"
+  },
+  "Insert": {
+    "prefix": "insert",
+    "body": [
+      "${1:Employee}().insert(values: {${2:id}: ${3:\"e1\"}})."
+    ],
+    "description": "Store a new fact; an error if the key exists"
   },
   "Link": {
     "prefix": "link",
     "body": [
       "Link(",
-      "    from: ${1:left},",
-      "    to: ${2:right},",
-      "    properties: {${3:kind}: ${4:connected}}",
+      "    from: ${1:left}.${2:id},",
+      "    to: ${3:right}.${2:id},",
+      "    properties: {${4:kind}: ${5:\"works_in\"}}",
       ")."
     ],
-    "description": "Create an instance graph link"
+    "description": "Store an edge between two stored facts"
+  },
+  "Unlink": {
+    "prefix": "unlink",
+    "body": [
+      "Unlink(",
+      "    from: ${1:left}.${2:id},",
+      "    to: ${3:right}.${2:id},",
+      "    properties: {${4:kind}: ${5:\"works_in\"}}",
+      ")."
+    ],
+    "description": "Remove a stored link"
+  },
+  "Join": {
+    "prefix": "join",
+    "body": [
+      "${1:Employee}().join(to: ${2:Department}, type: ${3:forward}, properties: {${4:kind}: ${5:\"works_in\"}})."
+    ],
+    "description": "Walk links to facts of another class; returns typed rows (left, right, properties, depth)"
   },
   "Atom Predicate": {
     "prefix": "isatom",
-    "body": ["is_atom(${1:value})."],
+    "body": [
+      "is_atom(${1:value})."
+    ],
     "description": "Test whether a value is a data atom"
   },
   "Type": {
     "prefix": "type",
-    "body": ["type(${1:value})."],
-    "description": "Return the concrete runtime type name"
+    "body": [
+      "type(${1:value})."
+    ],
+    "description": "Return the type name of a value"
   }
 }

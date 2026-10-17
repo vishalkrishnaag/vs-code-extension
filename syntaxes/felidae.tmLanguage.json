@@ -16,13 +16,16 @@
       "include": "#imports"
     },
     {
+      "include": "#annotations"
+    },
+    {
       "include": "#keywords"
     },
     {
       "include": "#rules"
     },
     {
-      "include": "#queries"
+      "include": "#typeParameters"
     },
     {
       "include": "#operators"
@@ -31,7 +34,7 @@
       "include": "#structures"
     },
     {
-      "include": "#libraryCalls"
+      "include": "#builtins"
     },
     {
       "include": "#dataTypes"
@@ -80,7 +83,7 @@
       "patterns": [
         {
           "name": "constant.numeric.Felidae",
-          "match": "\\b\\d+(?:\\.\\d+)?\\b"
+          "match": "\\b\\d+(?:\\.\\d+)?(?:[Ll]|[Ff])?\\b"
         }
       ]
     },
@@ -96,23 +99,43 @@
       "patterns": [
         {
           "name": "keyword.declaration.function.felidae",
-          "match": "\\bdef\\b(?=\\s+[A-Za-z_][A-Za-z0-9_:.]*\\s*\\([^)]*\\)\\s*=>)"
+          "match": "\\b(?:def|defprivate)\\b(?=\\s+[A-Za-z_][A-Za-z0-9_.]*\\s*\\([^)]*\\)\\s*=>)"
+        },
+        {
+          "name": "keyword.declaration.function.felidae",
+          "match": "\\bdefprivate\\b"
         },
         {
           "name": "keyword.declaration.variable.felidae",
-          "match": "\\bdef\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:)"
+          "match": "\\bdef\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*(?::|:=))"
         },
         {
-          "name": "keyword.declaration.struct.felidae",
-          "match": "\\bdef\\b(?=\\s+[A-Za-z_][A-Za-z0-9_:.]*\\s*\\()"
+          "name": "storage.modifier.static.felidae",
+          "match": "\\bstatic\\b(?=\\s+class\\b)"
+        },
+        {
+          "name": "keyword.declaration.class.felidae",
+          "match": "\\bclass\\b"
         },
         {
           "name": "keyword.control.end.felidae",
           "match": "\\bend\\b"
         },
         {
+          "name": "keyword.other.directive.felidae",
+          "match": "\\b(?:key|index)\\b(?=\\s*\\()"
+        },
+        {
+          "name": "keyword.operator.logical.word.felidae",
+          "match": "\\b(?:and|or|not)\\b"
+        },
+        {
+          "name": "constant.language.felidae",
+          "match": "\\b(?:true|false|nil)\\b"
+        },
+        {
           "name": "keyword.control.felidae",
-          "match": "\\b(?:def|class|extend|extends|index|where|else|then|for|in|while|switch|case|default|break|continue|try|catch|new|this|super)\\b"
+          "match": "\\b(?:def|extends|else|then|for|in|while|switch|case|default|break|continue|try|catch|new|this|super)\\b"
         }
       ]
     },
@@ -121,14 +144,9 @@
         {
           "name": "keyword.operator.rule.Felidae",
           "match": "=>|:="
-        },
-        {
-          "name": "punctuation.accessor.module.Felidae",
-          "match": "\\.(?=[A-Za-z_][A-Za-z0-9_]*\\s*\\()"
         }
       ]
     },
-    "queries": { "patterns": [] },
     "operators": {
       "patterns": [
         {
@@ -137,15 +155,15 @@
         },
         {
           "name": "keyword.operator.arithmetic.Felidae",
-          "match": "[+*/-]"
+          "match": "[+*/%-]"
         },
         {
-          "name": "keyword.operator.logical.and.Felidae",
+          "name": "punctuation.separator.comma.Felidae",
           "match": ","
         },
         {
-          "name": "keyword.operator.logical.or.Felidae",
-          "match": "\\|"
+          "name": "punctuation.terminator.statement.felidae",
+          "match": "\\.(?=\\s*(?:#.*)?$)"
         },
         {
           "name": "punctuation.accessor.felidae",
@@ -173,23 +191,7 @@
       "patterns": [
         {
           "name": "entity.name.function.predicate.Felidae",
-          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?:(?:\\:|\\.)[A-Za-z_][A-Za-z0-9_]*)*(?=\\s*\\()"
-        }
-      ]
-    },
-    "libraryCalls": {
-      "patterns": [
-        {
-          "name": "support.class.library.felidae",
-          "match": "\\b(?:array|comparison|console|csv|db|exception|fact|fact_analysis|file|flibrary|group|gtk|http|json|list|logic|math|ml|package|plot|prelude|process|qt|set|smoke|str|system|thread|wordnet)(?=\\s*[:.])"
-        },
-        {
-          "name": "punctuation.accessor.library.felidae",
-          "match": "[:.](?=\\s*[A-Za-z_][A-Za-z0-9_]*\\s*\\()"
-        },
-        {
-          "name": "support.function.library.felidae",
-          "match": "(?<=[:.])\\s*[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
         }
       ]
     },
@@ -197,7 +199,15 @@
       "patterns": [
         {
           "name": "storage.type.primitive.felidae",
-          "match": "(?<=:)\\s*\\b(?:any|atom|bool|boolean|decimal|double|float|int|list|number|obj|optional|Pair|string)\\b"
+          "match": "\\b(?:Integer|Long|Float|Double|Character|String|Boolean|Atom|Any|Object|Nothing|List|Map|Optional|Pair)\\b"
+        },
+        {
+          "name": "entity.name.type.class.felidae",
+          "match": "(?<=\\b(?:class|extends|new)\\s)\\s*[A-Za-z_][A-Za-z0-9_.]*"
+        },
+        {
+          "name": "entity.name.type.felidae",
+          "match": "(?<=[:<,]\\s?)[A-Z][A-Za-z0-9_.]*(?!\\s*\\()"
         }
       ]
     },
@@ -206,6 +216,61 @@
         {
           "name": "punctuation.separator.key-value.Felidae",
           "match": ":"
+        }
+      ]
+    },
+    "annotations": {
+      "patterns": [
+        {
+          "name": "storage.type.annotation.felidae",
+          "match": "@[A-Za-z_][A-Za-z0-9_]*"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.felidae",
+          "match": "\\b(?:print|range|throw|type|is_atom|len|length|Link|Unlink|Pair)\\b(?=\\s*\\()"
+        },
+        {
+          "name": "support.class.library.felidae",
+          "match": "\\b(?:db|system|console)(?=\\s*[:.])"
+        },
+        {
+          "name": "support.function.library.felidae",
+          "match": "(?<=\\b(?:db|system|console)[.:])[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+        }
+      ]
+    },
+    "typeParameters": {
+      "patterns": [
+        {
+          "name": "meta.type.parameters.felidae",
+          "begin": "(?<=\\b(?:List|Map|Optional|Pair))<",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.typeparameters.begin.felidae"
+            }
+          },
+          "end": ">",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.typeparameters.end.felidae"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#typeParameters"
+            },
+            {
+              "include": "#dataTypes"
+            },
+            {
+              "match": ",",
+              "name": "punctuation.separator.comma.Felidae"
+            }
+          ]
         }
       ]
     }

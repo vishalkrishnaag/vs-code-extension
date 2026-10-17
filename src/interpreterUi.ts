@@ -15,7 +15,6 @@ import {
   relativeCandidates,
   resolveInterpreter,
   searchedLocations,
-  supportsStdinRuns
 } from "./interpreter";
 
 // The search for a file: the setting (or the workspace's .vscode/felidae.json,
@@ -45,7 +44,6 @@ export function resolveInterpreterFor(uri: vscode.Uri | undefined, workspaceOver
 
 interface Probe {
   version?: string;
-  runsFromStdin: boolean;
 }
 
 export class InterpreterStatus {
@@ -97,10 +95,7 @@ export class InterpreterStatus {
         new Promise<string>((resolve) => {
           childProcess.execFile(interpreter, [argument], { timeout: 5000, windowsHide: true }, (_error, stdout) => resolve(String(stdout ?? "")));
         });
-      probe = Promise.all([run("--version"), run("--help")]).then(([version, help]) => ({
-        version: parseVersion(version),
-        runsFromStdin: supportsStdinRuns(help)
-      }));
+      probe = run("--version").then((version) => ({ version: parseVersion(version) }));
       this.probes.set(key, probe);
     }
     return probe;
@@ -128,7 +123,6 @@ export class InterpreterStatus {
       if (this.choiceFor(this.activeFelidaeUri()).path !== choice.path) return;
       this.item.text = "$(terminal) felidae " + (probe.version ?? "");
       this.item.tooltip = choice.path + " (" + choice.source + ")" +
-        (probe.runsFromStdin ? "" : "\nThis build cannot run a program from stdin (--stdin), which reading a binding and the notebook need. Rebuild felidae.") +
         "\nClick to choose another interpreter.";
     });
   }

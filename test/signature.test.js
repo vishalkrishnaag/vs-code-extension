@@ -69,45 +69,45 @@ check("nested default stays one param",
   T.collectHeadParams("opts: {a: 1, b: 2}, other: string").map(p => p.name), ["opts", "other"]);
 check("ignores := ", T.collectHeadParams("x := 1").map(p => p.name), []);
 
-console.log("\nsignature help (builtin str.concat):");
-const d1 = doc('main() =>\n    str.concat(');
+console.log("\nsignature help (builtin Link):");
+const d1 = doc('def main() =>\n    Link(');
 const sig = new T.FelidaeSignatureHelpProvider();
-const h1 = sig.provideSignatureHelp(d1, new vscode.Position(1, 15));
-check("label", h1 && h1.signatures[0].label, "str.concat(left:, right:, result:)");
+const h1 = sig.provideSignatureHelp(d1, new vscode.Position(1, 9));
+check("label", h1 && h1.signatures[0].label, "Link(from:, to:, type:, properties:)");
 check("activeParameter at open paren", h1 && h1.activeParameter, 0);
 
 console.log("\nactive parameter follows the typed key (order-independent):");
-const d2 = doc('main() =>\n    str.concat(result: x, left: ');
-const h2 = sig.provideSignatureHelp(d2, new vscode.Position(1, 32));
-check("after 'result:' supplied, typing 'left' highlights left(0)", h2 && h2.activeParameter, 0);
+const d2 = doc('def main() =>\n    Link(to: x, from: ');
+const h2 = sig.provideSignatureHelp(d2, new vscode.Position(1, 23));
+check("after 'to:' supplied, typing 'from' highlights from(0)", h2 && h2.activeParameter, 0);
 
-const d3 = doc('main() =>\n    str.concat(left: "a", ');
-const h3 = sig.provideSignatureHelp(d3, new vscode.Position(1, 26));
-check("after left supplied, next unsupplied is right(1)", h3 && h3.activeParameter, 1);
+const d3 = doc('def main() =>\n    Link(from: a, ');
+const h3 = sig.provideSignatureHelp(d3, new vscode.Position(1, 21));
+check("after from supplied, next unsupplied is to(1)", h3 && h3.activeParameter, 1);
 
 console.log("\nsupplied-key filtering in completion:");
 const tokens = T.lexDocument(d3).tokens;
-const idx = T.tokenIndexBefore(tokens, new vscode.Position(1, 26));
+const idx = T.tokenIndexBefore(tokens, new vscode.Position(1, 21));
 const call = T.enclosingCall(tokens, idx);
-check("enclosing call name", call && call.name, "str:concat");
+check("enclosing call name", call && call.name, "Link");
 const state = T.callArgumentState(tokens, call.openParen, idx);
-check("suppliedKeys", [...state.suppliedKeys], ["left"]);
+check("suppliedKeys", [...state.suppliedKeys], ["from"]);
 const items = T.completionsForCallFields(d3, call.name, state.suppliedKeys);
-check("left no longer suggested", items.map(i => i.label), ["right", "result"]);
+check("from no longer suggested", items.map(i => i.label), ["to", "type", "properties"]);
 
 console.log("\nuser-defined method via regex fallback (no felidae symbol cache):");
-const d4 = doc('Greeting(name: string, times: number) =>\n    return\n\nmain() =>\n    Greeting(');
-const h4 = sig.provideSignatureHelp(d4, new vscode.Position(4, 13));
-check("user signature", h4 && h4.signatures[0].label, "Greeting(name: string, times: number)");
+const d4 = doc('def Greeting(name: String, times: Integer) =>\n    1.\nend\n\ndef main() =>\n    Greeting(');
+const h4 = sig.provideSignatureHelp(d4, new vscode.Position(5, 13));
+check("user signature", h4 && h4.signatures[0].label, "Greeting(name: String, times: Integer)");
 
 console.log("\nregression: assignment target is not treated as a parameter:");
-const d5 = doc('main() =>\n    score := ml.dot(');
-const items5 = T.completionsForCallFields(d5, "ml:dot", new Set());
-check("ml.dot params", items5.map(i => i.label), ["left", "right"]);
+const d5 = doc('def main() =>\n    score := Unlink(');
+const items5 = T.completionsForCallFields(d5, "Unlink", new Set());
+check("Unlink params", items5.map(i => i.label), ["from", "to", "properties"]);
 
 console.log("\nhover on a user-defined method:");
 const hov = new T.FelidaeHoverProvider();
-const hres = hov.provideHover(d4, new vscode.Position(0, 3));
+const hres = hov.provideHover(d4, new vscode.Position(0, 7));
 check("hover produced", !!hres, true);
 
 console.log(`\n${pass} passed, ${fail} failed`);

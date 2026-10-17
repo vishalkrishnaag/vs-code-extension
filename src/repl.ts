@@ -1,20 +1,24 @@
 // The interpreter's own REPL, inside VS Code, for trying code as you edit it.
 //
-//   Felidae: Open REPL          starts `felidae --repl` in a terminal, in the
-//                               current file's folder (the REPL reads ./init.fx)
+//   Felidae: Open REPL          starts `felidae-repl` in a terminal, in the
+//                               current file's folder (it saves repl.fx there, and a
+//                               program that keeps facts reads ./init.fx beside it)
 //   Felidae: Send to REPL       sends the selection, or else the def block under
 //                               the cursor, or else the current line
 //
 // The REPL is the interpreter's normal interactive mode, run in a terminal you
 // own: the extension keeps no session of its own, and when the REPL exits (or you
-// close the terminal) it is gone. The REPL holds the project's database open, so
-// running a cell or Run main on the same project at the same time reports
-// RocksDB's lock error.
+// close the terminal) it is gone. The REPL asks whether to run in append mode (all
+// code is kept in repl.fx and the whole file runs each time) or not (each input
+// replaces the file). A program that keeps facts holds its TidesDB database open
+// while it runs, so a second program on the same project at the same time reports
+// the store's lock error.
 
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 import { BlockPair, cellAtLine, splitCells } from "./cells";
+import { replExecutable } from "./interpreter";
 
 export interface ReplHost {
   resolveInterpreterPath(uri: vscode.Uri): string;
@@ -53,17 +57,15 @@ export function registerRepl(context: vscode.ExtensionContext, host: ReplHost): 
       return undefined;
     }
     const folder = path.dirname(document.uri.fsPath);
-    if (!fs.existsSync(path.join(folder, "init.fx"))) {
-      void vscode.window.showWarningMessage(
-        "There is no init.fx in " + folder + ". The REPL reads ./init.fx (it names the database), so open it from a file in the project folder."
-      );
+    const interpreter = host.resolveInterpreterPath(document.uri);
+    const repl = replExecutable(interpreter, process.platform);
+    if (path.isAbsolute(repl) && !fs.existsSync(repl)) {
+      void vscode.window.showWarningMessage("The REPL is not built: " + repl + " is missing. Run ./gradlew installDist in the Felidae repository.");
       return undefined;
     }
-    const interpreter = host.resolveInterpreterPath(document.uri);
-    if (!(await host.ensureInterpreterInstalled(interpreter))) return undefined;
-    host.log("info", "repl: " + interpreter + " --repl (cwd " + folder + ")");
-    // The terminal runs felidae itself, not a shell, so it ends when the REPL does.
-    terminal = vscode.window.createTerminal({ name: "Felidae REPL", cwd: folder, shellPath: interpreter, shellArgs: ["--repl"] });
+    host.log("info", "repl: " + repl + " " + folder);
+    // The terminal runs felidae-repl itself, not a shell, so it ends when the REPL does.
+    terminal = vscode.window.createTerminal({ name: "Felidae REPL", cwd: folder, shellPath: repl, shellArgs: [folder] });
     terminal.show(true);
     return terminal;
   };

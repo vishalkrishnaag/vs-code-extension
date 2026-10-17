@@ -44,12 +44,14 @@ function corpusFiles() {
 const foldingCorpusFile = corpusFiles()[0];
 
 const suites = [
-  { name: "runtime launch and debugger", args: [path.join(HERE, "runtime.test.js")] },
+  { name: "runtime launch", args: [path.join(HERE, "runtime.test.js")] },
+  { name: "debug session against a real felidae --debug (needs build/java/felidae.jar)", args: [path.join(HERE, "debug.test.js")] },
   { name: "providers (rename/references/highlight)", args: [path.join(HERE, "providers.test.js")] },
   { name: "signature help + completion", args: [path.join(HERE, "signature.test.js")] },
   { name: "editor features (inlay hints, selection, def kinds)", args: [path.join(HERE, "features.test.js")] },
   { name: "cells and cell runner", args: [path.join(HERE, "cells.test.js")] },
   { name: "editing helpers (doc comments, period fix, unused locals)", args: [path.join(HERE, "editing.test.js")] },
+  { name: "grammar", args: [path.join(HERE, "grammar.test.js")] },
   { name: "quick menu", args: [path.join(HERE, "quickMenu.test.js")] },
   { name: "interpreter lookup", args: [path.join(HERE, "interpreter.test.js")] },
   {

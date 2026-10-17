@@ -8,10 +8,12 @@ import {
 } from "./formatter";
 import * as ml from "./mlRanking";
 import { registerCells } from "./cellUi";
-import { docCommentAbove, findUnusedLocals, periodInsertion } from "./editing";
+import { docCommentAbove, findUnusedLocals, isDefWord, periodInsertion } from "./editing";
 import { InterpreterStatus, resolveInterpreterFor } from "./interpreterUi";
 import { menuEntries } from "./quickMenu";
 import { registerRepl } from "./repl";
+import { DapMessage, FelidaeDebugSession } from "./debug/session";
+import { CELL_FILE, cellProgram } from "./cells";
 
 type TokenKind =
   | "ident"
@@ -87,13 +89,14 @@ const semanticLegend = new vscode.SemanticTokensLegend(
 
 // Language keywords: never variables, never declaration names.
 const FELIDAE_KEYWORDS = new Set([
-  "def", "class", "extend", "extends", "index", "where", "if", "else", "then", "end",
+  "def", "defprivate", "static", "class", "extends", "index", "key", "else", "then", "end",
   "for", "in", "while", "switch", "case", "default", "break", "continue",
-  "try", "catch", "new", "this", "super", "lambda", "nil", "true", "false"
+  "try", "catch", "new", "this", "super", "and", "or", "not", "nil", "true", "false"
 ]);
 
 const FELIDAE_BUILTIN_TYPE_NAMES = new Set([
-  "any", "array", "bool", "boolean", "decimal", "double", "float", "int", "number", "string"
+  "Integer", "Long", "Float", "Double", "Character", "String", "Boolean", "Atom", "Any", "Object", "Nothing",
+  "List", "Map", "Optional", "Pair"
 ]);
 
 function loadBuiltinDocs(): Record<string, BuiltinDoc> {
@@ -528,7 +531,7 @@ function definitionPattern(name: string): RegExp {
   // followed by `(` either, so `def` is optional here without making this
   // match a fact by that name too eagerly). Only `class Name` itself has no
   // `def` prefix to allow for.
-  return new RegExp(`^(?:(?:def\\s+)?${qualifiedName}(?:\\s+extend\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*\\(|class\\s+${qualifiedName}\\b)`);
+  return new RegExp(`^(?:(?:(?:def|defprivate)\\s+)?${qualifiedName}(?:\\s+extend\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*\\(|class\\s+${qualifiedName}\\b)`);
 }
 
 class FelidaeHoverProvider implements vscode.HoverProvider {
@@ -641,8 +644,8 @@ function endBlockPairs(lines: readonly string[]): EndBlockPair[] {
   const pairs: EndBlockPair[] = [];
   for (let line = 0; line < lines.length; line++) {
     const text = lines[line];
-    const opener = /^\s*(class|def|for|while|switch|try)\b/.exec(text);
-    const opens = !!opener && (opener[1] !== "def" || defOpensBlock(line));
+    const opener = /^\s*(?:static\s+)?(class|defprivate|def|for|while|switch|try)\b/.exec(text);
+    const opens = !!opener && (!isDefWord(opener[1]) || defOpensBlock(line));
     if (opener && opens) {
       stack.push({ line, start: opener.index + opener[0].lastIndexOf(opener[1]), length: opener[1].length });
       continue;
@@ -765,7 +768,7 @@ class FelidaeFoldingRangeProvider implements vscode.FoldingRangeProvider {
     // requires one now, so without allowing it here a run of `def`-prefixed
     // methods collapsed into one region the same way.
     const startsTopLevel = (line: string) =>
-      /^(?:def[ \t]+)?[A-Za-z_][A-Za-z0-9_:.]*(?:[ \t]+extend[ \t]+[A-Za-z_][A-Za-z0-9_]*)?[ \t]*\(/.test(line) ||
+      /^(?:(?:def|defprivate)[ \t]+)?[A-Za-z_][A-Za-z0-9_:.]*(?:[ \t]+extend[ \t]+[A-Za-z_][A-Za-z0-9_]*)?[ \t]*\(/.test(line) ||
       /^import\b/.test(line) ||
       /^[A-Za-z_][A-Za-z0-9_]*[ \t]*:=/.test(line);
     // Explicit `end` is authoritative: fold precisely from its opening
@@ -831,7 +834,7 @@ class FelidaeInlayHintsProvider implements vscode.InlayHintsProvider {
       if (token.kind !== "ident" || tokens[i + 1]?.kind !== "lparen") continue;
       if (token.line < range.start.line || token.line > range.end.line) continue;
       // A declaration head already lists its parameters.
-      if (tokens[i - 1]?.text === "def") continue;
+      if (isDefWord(tokens[i - 1]?.text)) continue;
       const close = findMatchingParen(tokens, i + 1);
       if (close === undefined) continue;
 
@@ -1120,7 +1123,7 @@ function callSites(document: vscode.TextDocument): Array<{ name: string; range: 
   const sites: Array<{ name: string; range: vscode.Range }> = [];
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
-    if (token.kind !== "ident" || tokens[i + 1]?.kind !== "lparen" || tokens[i - 1]?.text === "def") continue;
+    if (token.kind !== "ident" || tokens[i + 1]?.kind !== "lparen" || isDefWord(tokens[i - 1]?.text)) continue;
     sites.push({ name: token.text, range: new vscode.Range(token.line, token.start, token.line, token.end) });
   }
   return sites;
@@ -1216,7 +1219,7 @@ function classifyDefs(tokens: Token[]): Array<{ kind: DefKind; line: number; sta
   const defs: Array<{ kind: DefKind; line: number; start: number; end: number }> = [];
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
-    if (token.kind !== "ident" || token.text !== "def" || tokens[i + 1]?.kind !== "ident") continue;
+    if (token.kind !== "ident" || !isDefWord(token.text) || tokens[i + 1]?.kind !== "ident") continue;
     defs.push({ kind: defKindAt(tokens, i), line: token.line, start: token.start, end: token.end });
   }
   return defs;
@@ -1274,7 +1277,7 @@ class FelidaeSemanticTokensProvider implements vscode.DocumentSemanticTokensProv
       const isKeyword = FELIDAE_KEYWORDS.has(token.text);
       const isCall = next?.kind === "lparen";
 
-      if (token.text === "def" && next?.kind === "ident") {
+      if (isDefWord(token.text) && next?.kind === "ident") {
         const semanticType = { binding: 2, function: 3, fact: 4 }[defKindAt(tokens, i)];
         builder.push(token.line, token.start, token.end - token.start, semanticType, 0);
         continue;
@@ -1413,7 +1416,7 @@ function isLibraryNamespace(name: string): boolean {
 // for `def`-prefixed source the moment that keyword became mandatory.
 // Non-capturing, so match[1..4] keep meaning name/extends/args/terminator.
 const DECLARATION_PATTERN =
-  /^(?:def[ \t]+)?([A-Za-z_][A-Za-z0-9_:.]*)(?:[ \t]+extend[ \t]+([A-Za-z_][A-Za-z0-9_]*))?[ \t]*\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)[ \t]*(=>|\.|$)/gm;
+  /^(?:(?:def|defprivate)[ \t]+)?([A-Za-z_][A-Za-z0-9_:.]*)(?:[ \t]+extend[ \t]+([A-Za-z_][A-Za-z0-9_]*))?[ \t]*\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)[ \t]*(=>|\.|$)/gm;
 // A top-level binding: `def name := v.` or `def name: Type := v.` (an indented
 // def is a local or a class field, not a top-level symbol).
 const GLOBAL_BINDING_PATTERN = /^def[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?::[^=\n]*)?:=/gm;
@@ -2008,7 +2011,7 @@ class FelidaeDocumentHighlightProvider implements vscode.DocumentHighlightProvid
   ): vscode.ProviderResult<vscode.DocumentHighlight[]> {
     const found = identifierAt(document, position);
     if (!found) return [];
-    if (["class", "def", "for", "while", "switch", "try", "end"].includes(found.name)) {
+    if (["class", "def", "defprivate", "for", "while", "switch", "try", "end"].includes(found.name)) {
       const pair = cachedEndBlockPairs(document).pairs.find((candidate) =>
         (candidate.openerLine === position.line && found.name !== "end") ||
         (candidate.endLine === position.line && found.name === "end")
@@ -2632,12 +2635,27 @@ async function runQuery(uri?: vscode.Uri): Promise<void> {
   }
 
   const interpreterPath = resolveInterpreterPath(document.uri);
-  const programPath = document.uri.fsPath;
   const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
   if (!installed) return;
   const trimmedQuery = query.trim();
   const normalizedQuery = trimmedQuery.endsWith(".") ? trimmedQuery : `${trimmedQuery}.`;
-  runInTerminal(interpreterPath, [programPath, "--query", normalizedQuery], path.dirname(programPath));
+  // The query runs from a generated program beside the document that imports it and prints the expression (see
+  // cellProgram); the files are removed when it ends.
+  const directory = path.dirname(document.uri.fsPath);
+  const queryFile = path.join(directory, CELL_FILE);
+  fs.writeFileSync(queryFile, cellProgram(path.basename(document.uri.fsPath), normalizedQuery));
+  outputChannel?.show(true);
+  log("info", "query: " + normalizedQuery);
+  await new Promise<void>((resolve) => {
+    childProcess.execFile(interpreterPath, [queryFile], { cwd: directory, timeout: 60000, windowsHide: true }, (error, stdout, stderr) => {
+      fs.rmSync(queryFile, { force: true });
+      fs.rmSync(queryFile.replace(/\.fx$/, ".class"), { force: true });
+      const text = (String(stdout) + String(stderr)).trimEnd() || (error ? error.message : "");
+      log(error ? "error" : "info", "query " + normalizedQuery + "\n" + text);
+      void (error ? vscode.window.showErrorMessage(text.split("\n")[0]) : vscode.window.showInformationMessage(text.split("\n")[0]));
+      resolve();
+    });
+  });
 }
 
 // A `main` *declaration*, which like every Felidae declaration sits at column
@@ -2694,9 +2712,7 @@ async function debugMain(uri?: vscode.Uri): Promise<void> {
     await document.save();
   }
 
-  // The real debug session (Interpreter::setGoalHook, driven via `felidae
-  // program.fx --debug`) runs in the interpreter itself, which also owns the
-  // diagnostics and language-server tooling modes.
+  // `felidae --debug` compiles the program and starts its JVM suspended; the debug adapter attaches to it.
   const interpreterPath = resolveInterpreterPath(document.uri);
   const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
   if (!installed) return;
@@ -2712,367 +2728,21 @@ async function debugMain(uri?: vscode.Uri): Promise<void> {
   });
 }
 
-// Drives Interpreter::setGoalHook's real debug protocol (`felidae program.fx
-// --debug`, src/main.cpp's DebugSession) over the child process's
-// stdin/stdout - not a simulation. Every "stopped" event, stack line, and
-// local variable value below comes from that child actually pausing and
-// reporting its live Env, the same way `felidae --debug` behaves when driven
-// by hand (see the FELIDAE_DEBUG_* marker protocol documented in main.cpp).
+// The debug adapter: `felidae --debug program.fx` starts the compiled program's JVM suspended, and the session in
+// src/debug/session.ts debugs it over JDWP with the source lines and variable names the compiler wrote into the
+// classes. The session is plain Debug Adapter Protocol, so the same code is tested without VS Code (test/debug.test.js).
 class FelidaeDebugAdapter implements vscode.DebugAdapter {
   private readonly emitter = new vscode.EventEmitter<vscode.DebugProtocolMessage>();
-  private static readonly localVariablesReference = 1;
-  private process?: childProcess.ChildProcessWithoutNullStreams;
-  private currentProgram?: string;
-  private currentLine = 1;
-  private stdoutBuffer = "";
-  private breakpoints = new Set<number>();
-  private locals: Array<{ name: string, value: string }> = [];
-  // Resolved from handleDebugLine once the child's next FELIDAE_DEBUG_STOPPED
-  // (or process exit) arrives. Every step/continue/launch request awaits
-  // this instead of replying immediately, so the "stopped" event (and the
-  // stackTrace/variables requests VS Code sends right after it) reflect the
-  // interpreter's real, current pause rather than a guess made before the
-  // child actually got there.
-  private pendingStop?: () => void;
-  private finishConfiguration!: () => void;
-  private readonly configurationDone = new Promise<void>((resolve) => { this.finishConfiguration = resolve; });
-  private pendingLocals?: { resolve: () => void };
   readonly onDidSendMessage = this.emitter.event;
+  private readonly session = new FelidaeDebugSession((message) => this.emitter.fire(message as vscode.DebugProtocolMessage));
 
   handleMessage(message: vscode.DebugProtocolMessage): void {
-    const request = message as DapRequest;
-    if (request.type !== "request") {
-      return;
-    }
-    log("trace", "debug request: " + request.command);
-
-    if (request.command === "initialize") {
-      this.sendResponse(request, {
-        supportsEvaluateForHovers: true,
-        supportsEvaluateForRepl: true,
-        supportsConfigurationDoneRequest: true,
-        supportsSetBreakpointsRequest: true,
-        supportsTerminateRequest: true
-      });
-      this.sendEvent("initialized");
-      return;
-    }
-
-    if (request.command === "configurationDone") {
-      this.finishConfiguration();
-      this.sendResponse(request);
-      return;
-    }
-
-    if (request.command === "launch") {
-      void this.launch(request);
-      return;
-    }
-
-    if (request.command === "threads") {
-      this.sendResponse(request, { threads: [{ id: 1, name: "Felidae" }] });
-      return;
-    }
-
-    if (request.command === "stackTrace") {
-      const source = this.currentProgram ? {
-        name: path.basename(this.currentProgram),
-        path: this.currentProgram
-      } : undefined;
-      // One real frame: the interpreter's stdin/stdout protocol reports the
-      // current paused line, not a full call stack (Interpreter::solveIterative
-      // doesn't yet publish per-call-frame names alongside method depth).
-      this.sendResponse(request, {
-        stackFrames: [{ id: 1, name: "Felidae program", source, line: this.currentLine, column: 1 }],
-        totalFrames: 1
-      });
-      return;
-    }
-
-    if (request.command === "scopes") {
-      this.sendResponse(request, {
-        scopes: [{
-          name: "Locals",
-          variablesReference: FelidaeDebugAdapter.localVariablesReference,
-          expensive: false
-        }]
-      });
-      return;
-    }
-
-    if (request.command === "variables") {
-      const args = (request.arguments ?? {}) as { variablesReference?: number };
-      const variables = args.variablesReference === FelidaeDebugAdapter.localVariablesReference
-        ? this.locals.map((variable) => ({ ...variable, variablesReference: 0 }))
-        : [];
-      this.sendResponse(request, { variables });
-      return;
-    }
-
-    if (request.command === "evaluate") {
-      void this.evaluate(request);
-      return;
-    }
-
-    if (request.command === "setBreakpoints") {
-      this.setBreakpoints(request);
-      return;
-    }
-
-    if (request.command === "next" || request.command === "stepIn" || request.command === "stepOut") {
-      void this.step(request, request.command);
-      return;
-    }
-
-    if (request.command === "pause") {
-      // The real protocol only pauses at a breakpoint or step target it
-      // reaches on its own; there is no async "stop wherever you currently
-      // are" command to send it, so reporting a fake stop here would show a
-      // line the interpreter was never actually paused at.
-      this.sendResponse(request, undefined, false, "Pause is not supported; set a breakpoint instead.");
-      return;
-    }
-
-    if (request.command === "continue") {
-      void this.continueExecution(request);
-      return;
-    }
-
-    if (request.command === "disconnect" || request.command === "terminate") {
-      this.process?.stdin.write("terminate\n");
-      this.process?.kill();
-      this.sendResponse(request);
-      this.sendEvent("terminated");
-      return;
-    }
-
-    this.sendResponse(request);
+    void this.session.handleMessage(message as unknown as DapMessage);
   }
 
   dispose(): void {
-    this.process?.kill();
+    void this.session.handleMessage({ seq: 0, type: "request", command: "disconnect" });
     this.emitter.dispose();
-  }
-
-  private async launch(request: DapRequest): Promise<void> {
-    const args = (request.arguments ?? {}) as Record<string, unknown>;
-    const interpreterPath = typeof args.interpreterPath === "string" ? args.interpreterPath : undefined;
-    const program = typeof args.program === "string" ? args.program : undefined;
-
-    if (!interpreterPath || !program) {
-      this.sendResponse(request, undefined, false, "Debug configuration requires interpreterPath and program.");
-      this.sendEvent("terminated");
-      return;
-    }
-
-    // With a query the debugger runs that one expression (a cell) instead of main.
-    const query = typeof args.query === "string" && args.query.trim() ? args.query : undefined;
-    const launchArgs = query ? [program, "--debug", "--query", query] : [program, "--debug"];
-    this.currentProgram = program;
-    this.currentLine = 1;
-    this.stdoutBuffer = "";
-    this.sendOutput(`Felidae debugger launch\n${interpreterPath} ${launchArgs.join(" ")}\n`, "console");
-    log("info", "debug launch: " + interpreterPath + " " + launchArgs.join(" "));
-    this.process = childProcess.spawn(interpreterPath, launchArgs, {
-      cwd: path.dirname(program),
-      windowsHide: true
-    });
-
-    this.process.stdout.on("data", (data: Buffer) => this.handleDebugStdout(data.toString()));
-    this.process.stderr.on("data", (data: Buffer) => this.sendOutput(data.toString(), "stderr"));
-    this.process.on("error", (error: Error) => {
-      log("error", "debug process error: " + error.message);
-      this.sendOutput(`${error.message}\n`, "stderr");
-      this.process = undefined;
-      this.finishConfiguration();
-      this.resolvePendingStop();
-      this.sendEvent("terminated");
-    });
-    this.process.on("close", (code: number | null) => {
-      this.flushDebugStdout();
-      log(code === 0 || code === null ? "info" : "warn", "debug process exited with code " + (code ?? "unknown"));
-      this.sendOutput(`Felidae process exited with code ${code ?? "unknown"}.\n`, "console");
-      this.process = undefined;
-      this.finishConfiguration();
-      this.resolvePendingStop();
-      this.sendEvent("terminated");
-    });
-
-    // The interpreter always starts paused on entry (DebugSession::attach);
-    // wait for that first real stop before replying, so the very first
-    // "stopped" event corresponds to a line the child actually reported.
-    await this.waitForStop();
-    await this.configurationDone;
-    if (!this.process) {
-      this.sendResponse(request, undefined, false, "Interpreter exited before debugger startup completed. See Debug Console.");
-      return;
-    }
-    for (const line of this.breakpoints) this.process.stdin.write(`break ${line}\n`);
-    this.sendResponse(request);
-    if (args.stopOnEntry === false) {
-      const stopped = this.waitForStop();
-      this.process.stdin.write("continue\n");
-      this.sendEvent("continued", { threadId: 1, allThreadsContinued: true });
-      await stopped;
-      if (this.process) this.sendEvent("stopped", { reason: "breakpoint", threadId: 1, allThreadsStopped: true });
-    } else {
-      this.sendEvent("stopped", { reason: "entry", threadId: 1, allThreadsStopped: true });
-    }
-  }
-
-  private waitForStop(): Promise<void> {
-    return new Promise((resolve) => { this.pendingStop = resolve; });
-  }
-
-  private resolvePendingStop(): void {
-    const resolve = this.pendingStop;
-    this.pendingStop = undefined;
-    resolve?.();
-  }
-
-  private setBreakpoints(request: DapRequest): void {
-    const args = (request.arguments ?? {}) as { breakpoints?: Array<{ line: number }> };
-    const requested = new Set((args.breakpoints ?? []).map((breakpoint) => breakpoint.line));
-    for (const line of requested) {
-      if (!this.breakpoints.has(line)) this.process?.stdin.write(`break ${line}\n`);
-    }
-    for (const line of this.breakpoints) {
-      if (!requested.has(line)) this.process?.stdin.write(`clear ${line}\n`);
-    }
-    this.breakpoints = requested;
-    // Reported verified without a round-trip confirmation from the child
-    // (the protocol has no "is this line executable" query yet) - optimistic,
-    // like most debug adapters default to when a line's executability isn't
-    // independently known ahead of time.
-    this.sendResponse(request, {
-      breakpoints: (args.breakpoints ?? []).map((breakpoint) => ({ verified: true, line: breakpoint.line }))
-    });
-  }
-
-  private async step(request: DapRequest, command: "next" | "stepIn" | "stepOut"): Promise<void> {
-    if (!this.process) {
-      this.sendResponse(request, undefined, false, "No active Felidae debug session.");
-      return;
-    }
-    const stopped = this.waitForStop();
-    this.process.stdin.write(`${command}\n`);
-    this.sendResponse(request);
-    await stopped;
-    if (this.process) this.sendEvent("stopped", { reason: "step", threadId: 1, allThreadsStopped: true });
-  }
-
-  private async continueExecution(request: DapRequest): Promise<void> {
-    if (!this.process) {
-      this.sendResponse(request, undefined, false, "No active Felidae debug session.");
-      return;
-    }
-    const stopped = this.waitForStop();
-    this.process.stdin.write("continue\n");
-    this.sendResponse(request, { allThreadsContinued: true });
-    this.sendEvent("continued", { threadId: 1, allThreadsContinued: true });
-    await stopped;
-    // A run that finishes rather than hitting another breakpoint resolves
-    // this same promise from the "close" handler, with "terminated" already
-    // sent and no further stop to report.
-    if (this.process) this.sendEvent("stopped", { reason: "breakpoint", threadId: 1, allThreadsStopped: true });
-  }
-
-  private async evaluate(request: DapRequest): Promise<void> {
-    const args = (request.arguments ?? {}) as { expression?: string };
-    // The native protocol exposes bound names, not arbitrary expressions.
-    const expression = (args.expression ?? "").trim();
-    if (!expression) {
-      this.sendResponse(request, { result: "", variablesReference: 0 });
-      return;
-    }
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(expression)) {
-      this.sendResponse(request, undefined, false, "Enter a variable name. Use Run Query for fact queries.");
-      return;
-    }
-    // Locals are refreshed before each stopped event. Reading that snapshot
-    // also supports simultaneous hover/watch requests without stdin races.
-    const value = this.locals.find((local) => local.name === expression)?.value;
-    this.sendResponse(request, { result: value ?? "<unbound>", variablesReference: 0 });
-  }
-
-  private refreshLocals(): Promise<void> {
-    return new Promise((resolve) => {
-      this.pendingLocals = { resolve };
-      this.process?.stdin.write("locals\n");
-    });
-  }
-
-  private handleDebugStdout(text: string): void {
-    this.stdoutBuffer += text;
-    const lines = this.stdoutBuffer.split(/\r?\n/);
-    this.stdoutBuffer = lines.pop() ?? "";
-    for (const line of lines) {
-      this.handleDebugLine(line);
-    }
-  }
-
-  private flushDebugStdout(): void {
-    if (!this.stdoutBuffer) return;
-    this.handleDebugLine(this.stdoutBuffer);
-    this.stdoutBuffer = "";
-  }
-
-  private handleDebugLine(line: string): void {
-    if (!line) return;
-    const stopped = /^FELIDAE_DEBUG_STOPPED reason=(\S+) line=(\d+)/.exec(line);
-    if (stopped) {
-      this.currentLine = Number(stopped[2]);
-      // Refresh locals before resolving the pause: `variables` fires right
-      // after "stopped", so it must already have this stop's real bindings
-      // rather than the previous pause's.
-      void this.refreshLocals().then(() => this.resolvePendingStop());
-      return;
-    }
-    if (line === "FELIDAE_DEBUG_CONTINUED" ||
-        line === "FELIDAE_DEBUG_TERMINATED" ||
-        line.startsWith("FELIDAE_DEBUG_BREAKPOINT_") ||
-        line.startsWith("FELIDAE_DEBUG_ERROR")) {
-      return;
-    }
-    if (line === "FELIDAE_DEBUG_LOCALS_BEGIN") {
-      this.locals = [];
-      return;
-    }
-    if (line === "FELIDAE_DEBUG_LOCALS_END") {
-      this.pendingLocals?.resolve();
-      this.pendingLocals = undefined;
-      return;
-    }
-    if (this.pendingLocals) {
-      const bound = /^(\S+) = (.*)$/.exec(line);
-      if (bound) this.locals.push({ name: bound[1], value: bound[2] });
-      return;
-    }
-    const value = /^FELIDAE_DEBUG_VALUE (\S+) = (.*)$/.exec(line);
-    if (value) {
-      return;
-    }
-    this.sendOutput(`${line}\n`, "stdout");
-  }
-
-  private sendResponse(request: DapRequest, body?: unknown, success = true, message?: string): void {
-    this.emitter.fire({
-      type: "response",
-      seq: 0,
-      request_seq: request.seq ?? 0,
-      command: request.command,
-      success,
-      message,
-      body
-    } as vscode.DebugProtocolMessage);
-  }
-
-  private sendEvent(event: string, body?: unknown): void {
-    this.emitter.fire({ type: "event", seq: 0, event, body } as vscode.DebugProtocolMessage);
-  }
-
-  private sendOutput(output: string, category: "console" | "stdout" | "stderr"): void {
-    this.sendEvent("output", { category, output });
   }
 }
 
@@ -3089,7 +2759,7 @@ class FelidaeDebugConfigurationProvider implements vscode.DebugConfigurationProv
     const workspacePath = folder?.uri.fsPath;
 
     config.type ??= "felidae";
-    config.name ??= "Debug Felidae Query";
+    config.name ??= "Debug Felidae Main";
     config.request ??= "launch";
     config.program ??= activeDocument?.uri.fsPath ?? "${file}";
     const anchor = typeof config.program === "string" && path.isAbsolute(config.program)
@@ -3098,7 +2768,7 @@ class FelidaeDebugConfigurationProvider implements vscode.DebugConfigurationProv
     if (!config.interpreterPath?.trim()) config.interpreterPath = resolveInterpreterPath(anchor);
     else if (!config.interpreterPath.includes("${"))
       config.interpreterPath = resolveReleaseExecutable(anchor, config.interpreterPath, "felidae");
-    config.stopOnEntry ??= true;
+    config.stopOnEntry ??= false;
     return config;
   }
 }

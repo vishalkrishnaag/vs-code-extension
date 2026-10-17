@@ -2,7 +2,7 @@
   "name": "felidae-vscode",
   "displayName": "Felidae",
   "description": "Felidae .fx support with interpreter debugging, diagnostics, and language services.",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "publisher": "local",
   "repository": {
     "type": "git",
@@ -349,18 +349,67 @@
             "properties": {
               "program": {
                 "type": "string",
-                "description": "Felidae source file to run.",
+                "description": "Felidae source file to debug (the entry file with main()).",
                 "default": "${file}"
               },
               "interpreterPath": {
                 "type": "string",
-                "description": "Path to the felidae interpreter executable (the same binary Run uses). There is no separate compiler or VM to run first.",
+                "description": "The felidae command (build/java/cli/install/felidae/bin/felidae from ./gradlew installDist), or felidae.jar. Empty: found like Run does.",
                 "default": ""
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Arguments passed to main().",
+                "default": []
+              },
+              "classpath": {
+                "type": "string",
+                "description": "Jars and directories with the Java libraries the program imports (felidae --classpath).",
+                "default": ""
+              },
+              "sourceDirs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Extra folders searched for the .fx files of imported sources.",
+                "default": []
               },
               "stopOnEntry": {
                 "type": "boolean",
-                "description": "Pause before executing the program so VS Code Continue resumes Felidae.",
-                "default": true
+                "description": "Stop at the first statement of main().",
+                "default": false
+              }
+            }
+          },
+          "attach": {
+            "required": [
+              "port"
+            ],
+            "properties": {
+              "port": {
+                "type": "number",
+                "description": "The JDWP port printed by `felidae --debug` (Listening for transport dt_socket at address: N)."
+              },
+              "host": {
+                "type": "string",
+                "description": "Host of the debuggee.",
+                "default": "127.0.0.1"
+              },
+              "program": {
+                "type": "string",
+                "description": "The entry .fx file, so sources are found beside it.",
+                "default": "${file}"
+              },
+              "sourceDirs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "default": []
               }
             }
           }
@@ -371,7 +420,31 @@
             "request": "launch",
             "name": "Debug Felidae Main",
             "program": "${file}",
-            "stopOnEntry": true
+            "stopOnEntry": false
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Felidae: Launch",
+            "description": "Compile and debug the current file",
+            "body": {
+              "type": "felidae",
+              "request": "launch",
+              "name": "Debug Felidae Main",
+              "program": "${file}",
+              "stopOnEntry": false
+            }
+          },
+          {
+            "label": "Felidae: Attach",
+            "description": "Attach to a program started with felidae --debug",
+            "body": {
+              "type": "felidae",
+              "request": "attach",
+              "name": "Attach to Felidae",
+              "port": 5005,
+              "program": "${file}"
+            }
           }
         ]
       }
@@ -548,10 +621,8 @@
   "scripts": {
     "vscode:prepublish": "tsc -p ./ && node esbuild.js --production",
     "test:runtime": "node test/runtime.test.js",
-    "generate:libraries": "node scripts/generate-libraries.js",
     "generate:builtin-docs": "node scripts/generate-builtin-docs.js",
-    "generate:models": "node scripts/generate-models.js",
-    "precompile": "npm run generate:libraries && npm run generate:builtin-docs && npm run generate:models && npm run generate:icon",
+    "precompile": "npm run generate:builtin-docs && npm run generate:icon",
     "compile": "tsc -p ./ && node esbuild.js",
     "watch": "node esbuild.js --watch",
     "watch:types": "tsc -watch -p ./ --noEmit",
