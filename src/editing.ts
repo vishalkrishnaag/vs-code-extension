@@ -13,13 +13,15 @@ export function docCommentAbove(lines: readonly string[], line: number): string[
   const comment: string[] = [];
   for (let index = line - 1; index >= 0; index--) {
     const text = lines[index].trim();
-    if (!text.startsWith("#")) break;
-    comment.unshift(text.replace(/^#+\s?/, ""));
+    if (!(text.startsWith("//") || text.startsWith("/*") || text.startsWith("*"))) break;
+    // A Javadoc-style block contributes its text lines; its opening and closing lines hold no text.
+    const body = text.replace(/^\/\/+\s?/, "").replace(/^\/\*+\s?/, "").replace(/\s?\*\/$/, "").replace(/^\*\s?/, "");
+    if (body.length > 0 || text.startsWith("//")) comment.unshift(body);
   }
   return comment;
 }
 
-// The code of a line without a trailing `# comment`, ignoring a # inside a string.
+// The code of a line without a trailing `// comment`, ignoring a // inside a string.
 function codeOf(line: string): string {
   let inString = false;
   for (let i = 0; i < line.length; i++) {
@@ -28,7 +30,7 @@ function codeOf(line: string): string {
       if (ch === "\\") i++;
       else if (ch === '"') inString = false;
     } else if (ch === '"') inString = true;
-    else if (ch === "#") return line.slice(0, i);
+    else if (ch === "/" && line[i + 1] === "/") return line.slice(0, i);
   }
   return line;
 }

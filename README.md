@@ -13,6 +13,9 @@ by compiling it to JVM classes).
 - **Type errors in the editor.** `felidae --check-json` now type-checks the program (unknown classes, mismatched
   types, a package that does not match its folder), not only the syntax.
 - **Debugging** finds the sources of classes in packages (`com.acme.app`).
+- **Primitive types** `int`, `long`, `float`, `double`, `boolean`, `char`, `byte`, `short` are types (highlighting, snippets); the compiler
+  warns where `Integer` could be `int`, and the warning shows as a squiggle.
+- **Facts** need `@fact` on the class and `import org.felidae.db.tidesdb` (snippets `fact` and `importdb`); `init.fx` is gone.
 - The quick fix for a missing `.` is replaced by one for a missing conditional `end`.
 
 ## What's new in 0.4.0

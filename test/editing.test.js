@@ -8,12 +8,12 @@ const check = (name, actual, expected) => {
 };
 
 // ---- doc comments
-const src = ["# Adds one.", "# Used by main.", "def inc(x: number) =>", "    x + 1.", "end", "", "# unrelated", "", "def other() =>", "    1.", "end"];
+const src = ["// Adds one.", "// Used by main.", "def inc(x: number) =>", "    x + 1.", "end", "", "// unrelated", "", "def other() =>", "    1.", "end"];
 check("the comment lines directly above a def are its doc", docCommentAbove(src, 2), ["Adds one.", "Used by main."]);
 check("a comment separated by a blank line is not its doc", docCommentAbove(src, 8), []);
 check("a def with nothing above has no doc", docCommentAbove(["def f() =>", "end"], 0), []);
-check("the # and one space are removed, deeper indentation kept", docCommentAbove(["#   indented note", "def f() =>"], 1), ["  indented note"]);
-check("a code line stops the comment", docCommentAbove(["x := 1.", "# note", "def f() =>"], 2), ["note"]);
+check("the # and one space are removed, deeper indentation kept", docCommentAbove(["//   indented note", "def f() =>"], 1), ["  indented note"]);
+check("a code line stops the comment", docCommentAbove(["x := 1.", "// note", "def f() =>"], 2), ["note"]);
 
 // ---- where a missing conditional `end` goes
 check("the parser's message names the place, which is returned zero-based",
@@ -26,7 +26,7 @@ function lex(text) {
   text.split("\n").forEach((line, lineIndex) => {
     const re = /[A-Za-z_][A-Za-z0-9_]*|:=|=>|[():,.]|"[^"]*"|\d+/g;
     let m;
-    while ((m = re.exec(line.replace(/#.*$/, ""))) !== null) {
+    while ((m = re.exec(line.replace(/\/\/.*$/, ""))) !== null) {
       const t = m[0];
       const kind = t === ":=" ? "bind" : t === "=>" ? "arrow" : t === "(" ? "lparen" : t === ")" ? "rparen" : t === ":" ? "colon" : t === "," ? "comma" : t === "." ? "dot" : /^\d/.test(t) ? "number" : t[0] === '"' ? "string" : "ident";
       tokens.push({ kind, text: t, line: lineIndex, start: m.index, end: m.index + t.length });

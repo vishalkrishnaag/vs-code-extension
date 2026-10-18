@@ -50,11 +50,21 @@
     "comments": {
       "patterns": [
         {
-          "name": "invalid.illegal.comment.unsupported-slash.felidae",
+          "name": "comment.block.documentation.felidae",
+          "begin": "/\\*\\*(?!/)",
+          "end": "\\*/"
+        },
+        {
+          "name": "comment.block.felidae",
+          "begin": "/\\*",
+          "end": "\\*/"
+        },
+        {
+          "name": "comment.line.double-slash.felidae",
           "match": "//.*$"
         },
         {
-          "name": "comment.line.number-sign.felidae",
+          "name": "invalid.illegal.comment.removed-number-sign.felidae",
           "match": "#.*$"
         }
       ]
@@ -103,7 +113,7 @@
       "patterns": [
         {
           "name": "keyword.declaration.function.felidae",
-          "match": "\\b(?:def|define)\\b(?=\\s+[A-Za-z_][A-Za-z0-9_.]*\\s*\\([^)]*\\)\\s*=>)"
+          "match": "\\b(?:def|define)\\b(?=\\s+[A-Za-z_][A-Za-z0-9_.]*(?:<[^>]*>)?\\s*\\([^)]*\\)\\s*(?::|=>))"
         },
         {
           "name": "keyword.declaration.function.felidae",
@@ -115,7 +125,15 @@
         },
         {
           "name": "storage.modifier.static.felidae",
-          "match": "\\b(?:private|static)\\b(?=\\s+(?:static\\s+)?class\\b)"
+          "match": "\\b(?:private|static|abstract)\\b(?=\\s+(?:static\\s+|abstract\\s+)?(?:class|interface)\\b)"
+        },
+        {
+          "name": "storage.modifier.static.felidae",
+          "match": "\\bstatic\\b(?=\\s+init\\b)"
+        },
+        {
+          "name": "keyword.control.init.felidae",
+          "match": "(?<=\\bstatic\\s)\\s*init\\b"
         },
         {
           "name": "keyword.declaration.class.felidae",
@@ -139,7 +157,7 @@
         },
         {
           "name": "keyword.control.felidae",
-          "match": "\\b(?:def|extends|else|then|for|in|while|switch|case|default|break|continue|try|catch|new|this|super)\\b"
+          "match": "\\b(?:def|extends|implements|else|then|for|in|while|switch|case|default|break|continue|try|catch|new|this|super)\\b"
         }
       ]
     },
@@ -147,7 +165,7 @@
       "patterns": [
         {
           "name": "keyword.operator.rule.Felidae",
-          "match": "=>|:="
+          "match": "=>|:=|\\?\\.|\\?:"
         }
       ]
     },
@@ -203,11 +221,11 @@
       "patterns": [
         {
           "name": "storage.type.primitive.felidae",
-          "match": "\\b(?:Integer|Long|Float|Double|Character|String|Boolean|Atom|Any|Object|Nothing|List|Map|Optional|Pair)\\b"
+          "match": "\\b(?:int|long|float|double|boolean|char|byte|short|Integer|Long|Float|Double|Character|Byte|Short|String|Boolean|Atom|Any|Object|Nothing|List|Map|Optional|Pair)\\b"
         },
         {
           "name": "entity.name.type.class.felidae",
-          "match": "(?<=\\b(?:class|extends|new)\\s)\\s*[A-Za-z_][A-Za-z0-9_.]*"
+          "match": "(?<=\\b(?:class|interface|extends|implements|new)\\s)\\s*[A-Za-z_][A-Za-z0-9_.]*"
         },
         {
           "name": "entity.name.type.felidae",

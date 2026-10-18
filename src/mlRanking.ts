@@ -234,7 +234,7 @@ export function __predictForParity(model: unknown, featureVector: number[]): num
   return predict(model as GbdtModel, featureVector);
 }
 
-/** Blanks string bodies and `#` comments, preserving length. */
+/** Blanks string bodies and `//` comments, preserving length. */
 function maskLine(line: string): string {
   let masked = "";
   let inString = false;
@@ -246,7 +246,7 @@ function maskLine(line: string): string {
       if (ch === '"') { inString = false; masked += '"'; i++; continue; }
       masked += "x"; i++; continue;
     }
-    if (ch === "#") { masked += " ".repeat(line.length - i); break; }
+    if (ch === "/" && line[i + 1] === "/") { masked += " ".repeat(line.length - i); break; }
     if (ch === '"') { inString = true; masked += '"'; i++; continue; }
     masked += ch; i++;
   }

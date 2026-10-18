@@ -33,7 +33,7 @@ const OPENERS = "([{";
 const CLOSERS = ")]}";
 const TAB_WIDTH = 4;
 
-// Blanks out string-literal contents and "#" line comments (preserving
+// Blanks out string-literal contents, "//" line comments and one-line "/* */" comments (preserving
 // string length) so bracket/keyword scanning never misreads a `(` or `=>`
 // that only appears inside a string or a comment.
 function maskLine(line: string): string {
@@ -58,9 +58,16 @@ function maskLine(line: string): string {
       i++;
       continue;
     }
-    if (ch === "#") {
+    if (ch === "/" && line[i + 1] === "/") {
       masked += " ".repeat(line.length - i);
       break;
+    }
+    if (ch === "/" && line[i + 1] === "*") {
+      const close = line.indexOf("*/", i + 2);
+      const end = close < 0 ? line.length : close + 2;
+      masked += " ".repeat(end - i);
+      i = end;
+      continue;
     }
     if (ch === '"') {
       inString = true;
@@ -72,6 +79,32 @@ function maskLine(line: string): string {
     i++;
   }
   return masked;
+}
+
+// Whether the line starts a `/* ... */` comment that it does not close, so the following lines are comment text.
+function opensBlockComment(line: string): boolean {
+  let inString = false;
+  let open = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (open) {
+      if (ch === "*" && line[i + 1] === "/") {
+        open = false;
+        i++;
+      }
+    } else if (inString) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === "/" && line[i + 1] === "/") {
+      return false;
+    } else if (ch === "/" && line[i + 1] === "*") {
+      open = true;
+      i++;
+    }
+  }
+  return open;
 }
 
 function leadingWidth(rawLine: string): number {
@@ -88,8 +121,8 @@ function leadingWidth(rawLine: string): number {
 // conditional whose branches start on the next line (`x > 0 then`). else/catch/case/default continue the surrounding
 // frame rather than opening another one.
 function opensBlock(masked: string): boolean {
-  return /^\s*(?:private\s+)?(?:static\s+)?class\s+[A-Za-z_][A-Za-z0-9_.]*(?:\s+extends?\b.*)?\s*$/.test(masked) ||
-    /^\s*(?:def|define)\s+[A-Za-z_][A-Za-z0-9_.]*\s*\([^)]*\)\s*=>\s*$/.test(masked) ||
+  return /^\s*(?:private\s+)?(?:static\s+)?(?:class|interface)\s+[A-Za-z_][A-Za-z0-9_.]*(?:\s+(?:extends?|implements)\b.*)?\s*$/.test(masked) ||
+    /^\s*(?:def|define)\s+[A-Za-z_][A-Za-z0-9_.]*(?:<[^>]*>)?\s*\([^)]*\)(?:\s*:\s*[^=]+?)?\s*=>\s*$/.test(masked) ||
     /^\s*(?:for\b.*\bthen|while\b.*\bthen|switch\b.*|try)\s*$/.test(masked) ||
     /^\s*(?!(?:else|catch|case|default)\b)\S.*\bthen\s*$/.test(masked);
 }
@@ -117,7 +150,15 @@ export function formatFelidaeLines(rawLines: readonly string[]): string[] {
   const output: string[] = [];
   let previousRawLineWasBlank = true; // start-of-file counts as a boundary
 
+  let inBlockComment = false;
   for (const rawLine of rawLines) {
+    // The inside of a multi-line block comment is text, not code: it is kept as written.
+    if (inBlockComment) {
+      output.push(rawLine.trimEnd());
+      if (rawLine.includes("*/")) inBlockComment = false;
+      continue;
+    }
+    inBlockComment = opensBlockComment(rawLine);
     const trimmed = rawLine.trim();
 
     if (trimmed.length === 0) {
@@ -127,7 +168,7 @@ export function formatFelidaeLines(rawLines: readonly string[]): string[] {
     }
 
     const masked = maskLine(rawLine);
-    const isComment = trimmed.startsWith("#");
+    const isComment = trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*");
     const isBranch = /^(?:else\b(?:.*\bthen)?|catch\b.*\bthen|case\b.*\bthen|default\s+then)\s*$/.test(trimmed);
     const isBareEnd = trimmed === "end";
     // A comment's own column is only trustworthy as a dedent signal when it

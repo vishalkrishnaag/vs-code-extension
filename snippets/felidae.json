@@ -18,7 +18,7 @@
     "body": [
       "def ${1:value}${2:: ${3:Integer}} := ${4:expression}"
     ],
-    "description": "Declare an immutable binding"
+    "description": "A local binding inside a method (a shared field of a static class is written the same way)"
   },
   "Function": {
     "prefix": "function",
@@ -27,7 +27,7 @@
       "    ${4:expression}",
       "end"
     ],
-    "description": "Declare a function; its last expression is the result"
+    "description": "A static method (inside a static class)"
   },
   "Private Class": {
     "prefix": "privateclass",
@@ -50,22 +50,23 @@
   "Main": {
     "prefix": "main",
     "body": [
-      "def main() =>",
-      "    ${1:expression}",
+      "static class ${1:App}",
+      "    def main() =>",
+      "        ${2:expression}",
+      "    end",
       "end"
     ],
-    "description": "Declare the program entry function"
+    "description": "A program: a static class with main"
   },
   "Class": {
     "prefix": "class",
     "body": [
       "class ${1:Entity}",
-      "    key(${2:id})",
       "    def ${2:id}: ${3:String}",
-      "    def ${4:enabled}: ${5:Boolean} := ${6:true}",
+      "    def ${4:enabled}: ${5:boolean} := ${6:true}",
       "end"
     ],
-    "description": "Declare a class; when every field is storable its instances are facts stored in TidesDB"
+    "description": "Declare a plain class"
   },
   "Subclass": {
     "prefix": "subclass",
@@ -200,7 +201,7 @@
   "Link": {
     "prefix": "link",
     "body": [
-      "Link(",
+      "Graph.Link(",
       "    from: ${1:left}.${2:id},",
       "    to: ${3:right}.${2:id},",
       "    properties: {${4:kind}: ${5:\"works_in\"}}",
@@ -211,7 +212,7 @@
   "Unlink": {
     "prefix": "unlink",
     "body": [
-      "Unlink(",
+      "Graph.Unlink(",
       "    from: ${1:left}.${2:id},",
       "    to: ${3:right}.${2:id},",
       "    properties: {${4:kind}: ${5:\"works_in\"}}",
@@ -239,5 +240,131 @@
       "type(${1:value})"
     ],
     "description": "Return the type name of a value"
+  },
+  "Fact class": {
+    "prefix": "fact",
+    "body": [
+      "@fact",
+      "class ${1:Entity}",
+      "    key(${2:id})",
+      "    def ${2:id}: ${3:String}",
+      "    def ${4:enabled}: ${5:boolean} := ${6:true}",
+      "end"
+    ],
+    "description": "Declare a class whose instances are stored in the database"
+  },
+  "Database import": {
+    "prefix": "importdb",
+    "body": [
+      "import org.felidae.db.tidesdb"
+    ],
+    "description": "Use the TidesDB fact store and choose its directory"
+  },
+  "Interface": {
+    "prefix": "interface",
+    "body": [
+      "interface ${1:Named}",
+      "    def ${2:label}() =>",
+      "        ${3:\"unnamed\"}",
+      "    end",
+      "end"
+    ],
+    "description": "Declare an interface: default methods, static methods and constants"
+  },
+  "Implementing class": {
+    "prefix": "implements",
+    "body": [
+      "class ${1:Circle} implements ${2:Named}",
+      "    def ${3:radius}: ${4:double}",
+      "end"
+    ],
+    "description": "Declare a class that implements an interface"
+  },
+  "PageRank": {
+    "prefix": "pagerank",
+    "body": [
+      "${1:Page}().pagerank(type: ${2|forward,backward,both|})"
+    ],
+    "description": "PageRank scores of the facts of a class over the stored links (import org.felidae.graph.algorithms)"
+  },
+  "Communities": {
+    "prefix": "communities",
+    "body": [
+      "${1:Page}().communities(algorithm: ${2|louvain,leiden|}, type: ${3|both,forward,backward|})"
+    ],
+    "description": "Louvain or Leiden communities of the facts of a class (import org.felidae.graph.algorithms)"
+  },
+  "BreadthFirst": {
+    "prefix": "bfs",
+    "body": [
+      "${1:Page}().bfs(from: ${2:start})"
+    ],
+    "description": "Breadth-first traversal from a fact (import org.felidae.graph.algorithms)"
+  },
+  "TopologicalOrder": {
+    "prefix": "topological",
+    "body": [
+      "${1:Task}().topological_order()"
+    ],
+    "description": "Topological order of the facts of a class; a cycle throws (import org.felidae.graph.algorithms)"
+  },
+  "Shared Field": {
+    "prefix": "field",
+    "body": [
+      "def ${1:name}${2:: ${3:Integer}} := ${4:value}"
+    ],
+    "description": "A shared field of a static class (inside the class)"
+  },
+  "Static Init": {
+    "prefix": "staticinit",
+    "body": [
+      "static init",
+      "    ${1:new Entity(id: \"e1\")}",
+      "end"
+    ],
+    "description": "Statements run once when the static class is loaded: facts and links"
+  },
+  "Database Location": {
+    "prefix": "dblocation",
+    "body": [
+      "static init",
+      "    db.location(\"${1:./data}\")",
+      "end"
+    ],
+    "description": "Where the database lives, set when the static class is loaded"
+  },
+  "Generic Class": {
+    "prefix": "genericclass",
+    "body": [
+      "class ${1:Box}<${2:T}>",
+      "    def ${3:value}: ${2:T}",
+      "end"
+    ],
+    "description": "A class with a type parameter"
+  },
+  "Generic Method": {
+    "prefix": "genericdef",
+    "body": [
+      "def ${1:first}<${2:T}>(${3:items}: List<${2:T}>) =>",
+      "    ${4:items.get(0)}",
+      "end"
+    ],
+    "description": "A method with a type parameter (inside a static class)"
+  },
+  "Abstract Class": {
+    "prefix": "abstractclass",
+    "body": [
+      "abstract class ${1:Shape}",
+      "    def ${2:area}(): ${3:double}",
+      "end"
+    ],
+    "description": "A class that is never constructed itself, with an abstract method"
+  },
+  "Abstract Method": {
+    "prefix": "abstractdef",
+    "body": [
+      "def ${1:area}(): ${2:double}"
+    ],
+    "description": "An abstract method: a result type and no body (in an interface or an abstract class)"
   }
 }

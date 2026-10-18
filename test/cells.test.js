@@ -25,85 +25,70 @@ const check = (name, actual, expected) => {
 
 // ---------------------------------------------------------------- cell splitting
 const program = [
-  "import \"math\".",              // 0
-  "",                              // 1
-  "# Employees seeded on load.",   // 2
-  "def Employee(id: \"e1\",",      // 3  multi-line fact
-  "             state: active).",  // 4
-  "def limit := 10.",              // 5  binding
-  "def label: string := \"x\".",   // 6  typed binding
-  "",                              // 7
-  "# Adds two numbers.",           // 8
-  "def add(a: number, b: number) =>", // 9
-  "    def total := a + b.",       // 10 inner def is not a cell
-  "    for i in xs then",          // 11
-  "        total.",                // 12
-  "    end",                       // 13
-  "    total.",                    // 14
-  "end",                           // 15
-  "",                              // 16
-  "class Visit",                   // 17
-  "    key(id).",                  // 18
-  "    def id: string.",           // 19
-  "end",                           // 20
-  "def main() =>",                 // 21
-  "    add(a: 1, b: 2).",          // 22
-  "end"                            // 23
+  "import java.util.ArrayList",     // 0
+  "",                               // 1
+  "static class Util",              // 2
+  "    def limit := 10",            // 3  binding
+  "    def label: String := \"x\"", // 4  typed binding
+  "",                               // 5
+  "    // Adds two numbers.",        // 6
+  "    def add(a: Integer, b: Integer) =>", // 7
+  "        def total := a + b",     // 8  inner def is not a cell
+  "        for i in xs then",       // 9
+  "            total",              // 10
+  "        end",                    // 11
+  "        total",                  // 12
+  "    end",                        // 13
+  "end",                            // 14
+  "",                               // 15
+  "class Visit",                    // 16
+  "    key(id)",                    // 17
+  "    def id: String",             // 18
+  "end",                            // 19
+  "static class App",               // 20
+  "    def main() =>",              // 21
+  "        Util.add(a: 1, b: 2)",   // 22
+  "    end",                        // 23
+  "end"                             // 24
 ];
 const found = cells.splitCells(program, endBlockPairs(program));
-const brief = (c) => [c.kind, c.name, c.headerLine, c.startLine, c.endLine];
+const brief = (c) => [c.kind, c.owner || "", c.name, c.headerLine, c.startLine, c.endLine];
 check("cells found, in file order, inner defs excluded", found.map(brief), [
-  ["fact", "Employee", 3, 2, 4],
-  ["binding", "limit", 5, 5, 5],
-  ["binding", "label", 6, 6, 6],
-  ["function", "add", 9, 8, 15],
-  ["class", "Visit", 17, 17, 20],
-  ["entry", "main", 21, 21, 23]
+  ["binding", "Util", "limit", 3, 3, 3],
+  ["binding", "Util", "label", 4, 4, 4],
+  ["function", "Util", "add", 7, 6, 13],
+  ["class", "", "Visit", 16, 16, 19],
+  ["entry", "App", "main", 21, 21, 23]
 ]);
-check("function parameters keep their types", found[3].params, [{ name: "a", type: "number" }, { name: "b", type: "number" }]);
-check("a fact has no parameters", found[0].params, []);
+check("function parameters keep their types", found[2].params, [{ name: "a", type: "Integer" }, { name: "b", type: "Integer" }]);
+check("a binding has no parameters", found[0].params, []);
 
 // ---------------------------------------------------------------- cell at a line
-check("a line inside a block finds that cell", cells.cellAtLine(found, 12).name, "add");
-check("a comment above a cell belongs to it", cells.cellAtLine(found, 8).name, "add");
-check("a blank line between cells finds the next one", cells.cellAtLine(found, 16).name, "Visit");
+check("a line inside a block finds that cell", cells.cellAtLine(found, 10).name, "add");
+check("a comment above a cell belongs to it", cells.cellAtLine(found, 6).name, "add");
+check("a blank line between cells finds the next one", cells.cellAtLine(found, 15).name, "Visit");
 check("past the last cell there is none", cells.cellAtLine(found, 99), undefined);
 
 // ---------------------------------------------------------------- expressions
-check("function with arguments", cells.buildCellExpression(found[3], " a: 1, b: 2 "), "add(a: 1, b: 2).");
-check("function without arguments", cells.buildCellExpression({ kind: "function", name: "now", params: [] }), "now().");
-check("binding reads the global", cells.buildCellExpression(found[1]), "limit.");
-check("fact shows its rows", cells.buildCellExpression(found[0]), "Employee.all().");
-check("class shows its instances", cells.buildCellExpression(found[4]), "Visit.all().");
-check("argument template names every parameter", cells.defaultArguments(found[3]), "a: , b: ");
+check("function with arguments", cells.buildCellExpression(found[2], " a: 1, b: 2 "), "Util.add(a: 1, b: 2)");
+check("function without arguments", cells.buildCellExpression({ kind: "function", owner: "Clock", name: "now", params: [] }), "Clock.now()");
+check("binding reads the shared field", cells.buildCellExpression(found[0]), "Util.limit");
+check("class shows its instances", cells.buildCellExpression(found[3]), "Visit.all()");
+check("argument template names every parameter", cells.defaultArguments(found[2]), "a: , b: ");
 check("the entry function is not a cell expression",
-  (() => { try { cells.buildCellExpression(found[5]); return "no error"; } catch (e) { return "throws"; } })(), "throws");
-check("hash differs when the source differs", cells.hashText("def a := 1.") !== cells.hashText("def a := 2."), true);
-
-// stdlib native declarations: "def f(...) => ()" still closes with end
-const native = [
-  "# Native math declarations.",
-  "def math.pi() => ()",
-  "end",
-  "def math.pow(base: number, exponent: number) => ()",
-  "end"
-];
-const nativeCells = cells.splitCells(native, endBlockPairs(native));
-check("native declarations are function cells with their own end",
-  nativeCells.map((c) => [c.kind, c.name, c.headerLine, c.endLine]),
-  [["function", "math.pi", 1, 2], ["function", "math.pow", 3, 4]]);
-check("native declaration parameters are read", nativeCells[1].params.map((p) => p.name), ["base", "exponent"]);
+  (() => { try { cells.buildCellExpression(found[4]); return "no error"; } catch (e) { return "throws"; } })(), "throws");
+check("hash differs when the source differs", cells.hashText("def a := 1") !== cells.hashText("def a := 2"), true);
 
 // a cell runs from a small program that imports the document
-check("a cell's program imports the document and runs the expression in main()",
-  cells.cellProgram("total.fx", "total"),
-  'import "total.fx"\n\ndef main() =>\n    total\nend\n');
+check("a cell's program imports the document and runs the expression in the main() of CellRun",
+  cells.cellProgram("total.fx", "Util.total"),
+  'import "total.fx"\n\nstatic class CellRun\n    def main() =>\n        Util.total\n    end\nend\n');
 check("the cell file is named once, here", cells.CELL_FILE, "cell_run.fx");
 
 // robustness on odd input
 check("an empty file has no cells", cells.splitCells([""], []).length, 0);
-check("an unclosed def is a single-line cell, not a crash",
-  cells.splitCells(["def broken(", "    x"], []).length, 1);
+check("an unclosed class has no cells, and is not a crash",
+  cells.splitCells(["static class A", "    def broken(", "        x"], []).length, 0);
 
 // ---------------------------------------------------------------- metrics (--metrics-json)
 // Exactly the shape the interpreter prints: stderr, with newlines before the commas.

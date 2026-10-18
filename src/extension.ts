@@ -89,13 +89,14 @@ const semanticLegend = new vscode.SemanticTokensLegend(
 
 // Language keywords: never variables, never declaration names.
 const FELIDAE_KEYWORDS = new Set([
-  "def", "define", "import", "package", "private", "static", "class", "extends", "index", "key", "else", "then", "end",
+  "def", "define", "import", "package", "private", "static", "abstract", "class", "interface", "implements", "extends", "index", "key", "else", "then", "end",
   "for", "in", "while", "switch", "case", "default", "break", "continue",
   "try", "catch", "new", "this", "super", "and", "or", "not", "nil", "true", "false"
 ]);
 
 const FELIDAE_BUILTIN_TYPE_NAMES = new Set([
-  "Integer", "Long", "Float", "Double", "Character", "String", "Boolean", "Atom", "Any", "Object", "Nothing",
+  "int", "long", "float", "double", "boolean", "char", "byte", "short",
+  "Integer", "Long", "Float", "Double", "Character", "Byte", "Short", "String", "Boolean", "Atom", "Any", "Object", "Nothing",
   "List", "Map", "Optional", "Pair"
 ]);
 
@@ -203,7 +204,7 @@ function lexDocumentUncached(document: vscode.TextDocument): LexResult {
         continue;
       }
 
-      if (ch === "#") {
+      if (ch === "/" && text[i + 1] === "/") {
         break;
       }
 
@@ -464,7 +465,7 @@ function collectImportStrings(document: vscode.TextDocument): PositionedString[]
     const text = document.lineAt(line).text;
     if (!/\bimport\b/.test(text)) continue;
     const importIndex = text.indexOf("import");
-    const commentIndex = text.indexOf("#");
+    const commentIndex = text.indexOf("//");
     if (commentIndex >= 0 && commentIndex < importIndex) continue;
     const regex = /"([^"]+)"/g;
     let match: RegExpExecArray | null;
@@ -644,7 +645,7 @@ function endBlockPairs(lines: readonly string[]): EndBlockPair[] {
   const pairs: EndBlockPair[] = [];
   for (let line = 0; line < lines.length; line++) {
     const text = lines[line];
-    const opener = /^\s*(?:private\s+)?(?:static\s+)?(class|define|def|for|while|switch|try)\b/.exec(text);
+    const opener = /^\s*(?:private\s+)?(?:static\s+)?(class|interface|define|def|for|while|switch|try)\b/.exec(text);
     const opens = !!opener && (!isDefWord(opener[1]) || defOpensBlock(line));
     if (opener && opens) {
       stack.push({ line, start: opener.index + opener[0].lastIndexOf(opener[1]), length: opener[1].length });
@@ -652,7 +653,7 @@ function endBlockPairs(lines: readonly string[]): EndBlockPair[] {
     }
     // A conditional whose branches start on the next line owns an `end` too: `x > 0 then` ... `end`. The `then` of
     // else/catch/case/default lines continues the surrounding block instead.
-    const conditional = /\bthen\s*(?:#.*)?$/.exec(text);
+    const conditional = /\bthen\s*(?:\/\/.*)?$/.exec(text);
     if (conditional && !/^\s*(?:else|catch|case|default)\b/.test(text) && !opener) {
       stack.push({ line, start: conditional.index, length: 4 });
       continue;
@@ -795,7 +796,7 @@ class FelidaeFoldingRangeProvider implements vscode.FoldingRangeProvider {
         // comes next - a comment here is the next declaration's doc. Ending
         // at the last real body line keeps a one-line fact unfoldable instead
         // of letting it swallow the following comment.
-        if (lines[j].trim().length > 0 && !/^[ \t]*#/.test(lines[j])) end = j;
+        if (lines[j].trim().length > 0 && !/^[ \t]*(?:\/\/|\/\*|\*)/.test(lines[j])) end = j;
       }
       if (end > i) {
         ranges.push(new vscode.FoldingRange(i, end, vscode.FoldingRangeKind.Region));
@@ -806,7 +807,7 @@ class FelidaeFoldingRangeProvider implements vscode.FoldingRangeProvider {
     // "Fold All Block Comments" acts on.
     let commentStart = -1;
     for (let i = 0; i <= lines.length; i++) {
-      const isComment = i < lines.length && /^[ \t]*#/.test(lines[i]);
+      const isComment = i < lines.length && /^[ \t]*(?:\/\/|\/\*|\*)/.test(lines[i]);
       if (isComment && commentStart < 0) commentStart = i;
       else if (!isComment && commentStart >= 0) {
         if (i - 1 > commentStart) {
@@ -940,7 +941,7 @@ interface FelidaeClassDeclaration {
   nameStart: number;
 }
 
-const CLASS_DECLARATION_PATTERN = /^[ \t]*class[ \t]+([A-Za-z_][A-Za-z0-9_.]*)(?:[ \t]+extends?[ \t]+([^#\n]*))?/gm;
+const CLASS_DECLARATION_PATTERN = /^[ \t]*class[ \t]+([A-Za-z_][A-Za-z0-9_.]*)(?:[ \t]+extends?[ \t]+([^/\n]*))?/gm;
 
 async function findClassDeclarations(): Promise<FelidaeClassDeclaration[]> {
   const found: FelidaeClassDeclaration[] = [];
@@ -1043,7 +1044,7 @@ class FelidaeTaskProvider implements vscode.TaskProvider {
 // with its parent's "end".
 function isBlockOpenerLine(text: string): boolean {
   const code = text.replace(/#.*$/, "");
-  return /^\s*(?:class\b|switch\b|try\s*$)/.test(code) ||
+  return /^\s*(?:class\b|interface\b|switch\b|try\s*$)/.test(code) ||
     /^\s*(?:for|while)\b.*\bthen\s*$/.test(code) ||
     /^\s*def\s+[A-Za-z_][A-Za-z0-9_:.]*\s*\([^)]*\)\s*=>\s*(?:\(\s*\))?\s*$/.test(code);
 }
@@ -1061,7 +1062,7 @@ function openerNeedsEnd(lines: readonly string[], openerLine: number): boolean {
   const indent = indentOf(lines[openerLine]);
   for (let line = openerLine + 1; line < lines.length; line++) {
     const text = lines[line];
-    if (text.trim() === "" || text.trim().startsWith("#")) continue;
+    if (text.trim() === "" || text.trim().startsWith("//")) continue;
     if (indentOf(text) > indent) continue;
     return !(indentOf(text) === indent && /^end\b/.test(text.trim()));
   }
@@ -1190,8 +1191,7 @@ class FelidaeCodeLensProvider implements vscode.CodeLensProvider {
     const lenses: vscode.CodeLens[] = [];
     for (let line = 0; line < document.lineCount; line++) {
       const text = document.lineAt(line).text;
-      // Same column-0 anchoring as hasMainMethod: an indented `main(...)`
-      // call is a call, not the entry point.
+      // The same declaration pattern as hasMainMethod: a call `main(...)` is not the entry point.
       if (!MAIN_DECLARATION_PATTERN.test(text)) continue;
       const range = new vscode.Range(line, text.indexOf("main"), line, text.indexOf("main") + 4);
       lenses.push(new vscode.CodeLens(range, {
@@ -1422,7 +1422,7 @@ function isLibraryNamespace(name: string): boolean {
 // for `def`-prefixed source the moment that keyword became mandatory.
 // Non-capturing, so match[1..4] keep meaning name/extends/args/terminator.
 const DECLARATION_PATTERN =
-  /^(?:(?:def|define)[ \t]+)?([A-Za-z_][A-Za-z0-9_:.]*)(?:[ \t]+extend[ \t]+([A-Za-z_][A-Za-z0-9_]*))?[ \t]*\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)[ \t]*(=>|\.|$)/gm;
+  /^(?:(?:def|define)[ \t]+)?([A-Za-z_][A-Za-z0-9_:.]*)(?:<[^<>(]*(?:<[^<>]*>[^<>(]*)*>)?(?:[ \t]+extend[ \t]+([A-Za-z_][A-Za-z0-9_]*))?[ \t]*\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)(?:[ \t]*:[ \t]*[A-Za-z_][\w.<>, ]*)?[ \t]*(=>|\.|$)/gm;
 // A top-level binding: `def name := v.` or `def name: Type := v.` (an indented
 // def is a local or a class field, not a top-level symbol).
 const GLOBAL_BINDING_PATTERN = /^def[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?::[^=\n]*)?:=/gm;
@@ -2659,16 +2659,9 @@ async function runQuery(uri?: vscode.Uri): Promise<void> {
   });
 }
 
-// A `main` *declaration*, which like every Felidae declaration sits at column
-// 0, starts with the mandatory `def` keyword, and is followed by `=>`.
-// Anchoring matters: `^\s*` also matched an indented `main(...)` call inside
-// another method's body, which made Run and Debug appear for files that have
-// no entry point to run. The `def` prefix is not optional here either - a
-// bare `main() =>` with no `def` is no longer valid Felidae at all (every
-// declaration except a bare fact requires it), so this pattern requiring it
-// matches exactly what can actually run, not a syntax this language used to
-// accept.
-const MAIN_DECLARATION_PATTERN = /^def[ \t]+main[ \t]*\([^)]*\)[ \t]*=>/m;
+// A `main` *declaration*: `def main(...) =>` is a method of a class, so it is indented, and it is followed by `=>`.
+// The `def` prefix is not optional, and a call `main(...)` has no `=>`, so this matches exactly what can run.
+const MAIN_DECLARATION_PATTERN = /^[ \t]+def[ \t]+main[ \t]*\([^)]*\)[ \t]*=>/m;
 
 function hasMainMethod(document: vscode.TextDocument): boolean {
   return MAIN_DECLARATION_PATTERN.test(document.getText());

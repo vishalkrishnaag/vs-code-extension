@@ -167,7 +167,7 @@ console.log("trailing comments belong to what follows");
     "first(x: number) =>",   // 1  region 1-2, NOT 1-4
     "    return x",          // 2
     "",                      // 3
-    "# documents `second`",  // 4
+    "// documents `second`",  // 4
     "second(x: number) =>",  // 5  region 5-6
     "    return x"           // 6
   ].join("\n");
@@ -181,11 +181,11 @@ console.log("trailing comments belong to what follows");
 console.log("comment blocks");
 {
   const text = [
-    "# line one",     // 1  comment region 1-3
-    "# line two",     // 2
-    "# line three",   // 3
+    "// line one",     // 1  comment region 1-3
+    "// line two",     // 2
+    "// line three",   // 3
     "Thing(a: 1)",    // 4
-    "# lone comment", // 5  single line: not foldable
+    "// lone comment", // 5  single line: not foldable
     "Other(a: 2)"     // 6
   ].join("\n");
   const found = regions(text, "Comment");

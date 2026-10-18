@@ -76,8 +76,10 @@ chk("prepareRename returns range", !!rn.prepareRename(d,new vscode.Position(0,7)
 let blocked=false; try{ rn.prepareRename(doc("def main() =>\n    system.print(value: 1).\nend"),new vscode.Position(1,6)); }catch(e){ blocked=/builtin/.test(e.message); }
 chk("rename of builtin is refused", blocked, true);
 
-const codeLensDocument = doc(`def main() =>
-    42.
+const codeLensDocument = doc(`static class App
+    def main() =>
+        42
+    end
 end`);
 const lenses = new C.FelidaeCodeLensProvider().provideCodeLenses(codeLensDocument);
 chk("main declaration gets run/debug lenses", lenses.map((lens) => lens.command.command), [
