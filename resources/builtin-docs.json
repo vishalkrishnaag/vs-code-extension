@@ -36,16 +36,44 @@
     "example": "is_atom(active).",
     "params": []
   },
+  "length": {
+    "heading": "length",
+    "description": "The number of items of a list or a Java array. Positional, like every builtin.",
+    "example": "length([1, 2, 3]).",
+    "params": []
+  },
   "len": {
     "heading": "len",
-    "description": "The number of items of a list (a member of List: `items.len()`).",
+    "description": "The number of items of a list or a Java array (the member form: `items.len()`).",
     "example": "[1, 2, 3].len().",
     "params": []
   },
-  "Link": {
-    "heading": "Link",
-    "description": "Stores an edge between two stored facts, named by their keys. `type` is forward (the default), backward or both; `properties` is a map literal of scalar values. Both facts must be stored.",
-    "example": "Link(from: ada.id, to: research.id, type: forward, properties: {kind: \"works_in\"}).",
+  "console:write": {
+    "heading": "console.write",
+    "description": "Writes the text of a value to standard output, with no trailing newline.",
+    "example": "console.write(\"no newline here\").",
+    "params": []
+  },
+  "console:writeLine": {
+    "heading": "console.writeLine",
+    "description": "Writes the text of a value to standard output, followed by a newline (what `print` also does).",
+    "example": "console.writeLine(\"a line\").",
+    "params": []
+  },
+  "Character": {
+    "heading": "Character",
+    "description": "Converts a one-letter string to a char.",
+    "example": "def c: char := Character(value: \"x\").",
+    "params": [
+      {
+        "name": "value"
+      }
+    ]
+  },
+  "Graph:Link": {
+    "heading": "Graph.Link",
+    "description": "Stores an edge between two stored facts (needs `import org.felidae.graph`), named by their keys. `type` is forward (the default), backward or both; `properties` is a map literal of scalar values. Both facts must be stored.",
+    "example": "Graph.Link(from: ada.id, to: research.id, type: forward, properties: {kind: \"works_in\"}).",
     "params": [
       {
         "name": "from"
@@ -61,10 +89,10 @@
       }
     ]
   },
-  "Unlink": {
-    "heading": "Unlink",
-    "description": "Removes a stored link. It takes the arguments of Link, and the link must be stored.",
-    "example": "Unlink(from: ada.id, to: research.id, properties: {kind: \"works_in\"}).",
+  "Graph:Unlink": {
+    "heading": "Graph.Unlink",
+    "description": "Removes a stored link (needs `import org.felidae.graph`). It takes the arguments of Graph.Link, and the link must be stored.",
+    "example": "Graph.Unlink(from: ada.id, to: research.id, properties: {kind: \"works_in\"}).",
     "params": [
       {
         "name": "from"
@@ -77,10 +105,38 @@
       }
     ]
   },
+  "key": {
+    "heading": "key",
+    "description": "Names a class's key field(s) (else the first field is the key). Structural, not an expression: written unprefixed in the class body.",
+    "example": "key(id).",
+    "params": []
+  },
   "db:location": {
     "heading": "db.location",
-    "description": "In init.fx: where the TidesDB store lives, relative to init.fx. A program that keeps facts needs an init.fx beside it.",
+    "description": "Called in a `static init` block: where the TidesDB store lives, relative to the project root (default `felidae-data` there). A program that writes facts opens the database at the first one.",
     "example": "db.location(\"./data/felidae\").",
+    "params": []
+  },
+  "db:config": {
+    "heading": "db.config",
+    "description": "Sets a TidesDB option, currently only the log level.",
+    "example": "db.config(log_level: \"info\").",
+    "params": [
+      {
+        "name": "log_level"
+      }
+    ]
+  },
+  "db:stats": {
+    "heading": "db.stats",
+    "description": "Where the database is and whether it is open, as a map (`path`, `open`).",
+    "example": "db.stats().get(\"open\").",
+    "params": []
+  },
+  "db:stop": {
+    "heading": "db.stop",
+    "description": "Closes the database; the next fact written opens it again.",
+    "example": "db.stop().",
     "params": []
   },
   "count": {
@@ -190,7 +246,7 @@
   },
   "join": {
     "heading": "join",
-    "description": "Walks the links from the selected facts to facts of another class and returns typed rows (left, right, properties, depth).",
+    "description": "Walks the links from the selected facts to facts of another class (needs import org.felidae.graph) and returns typed rows (left, right, properties, depth).",
     "example": "Employee().join(to: Department, type: forward, properties: {kind: \"works_in\"}).",
     "params": [
       {
@@ -206,7 +262,7 @@
   },
   "recursive_join": {
     "heading": "recursive_join",
-    "description": "Follows links breadth first up to max_depth and gives each reachable fact of the class once, at its least depth. max_depth is required.",
+    "description": "Follows links breadth first (needs import org.felidae.graph) up to max_depth and gives each reachable fact of the class once, at its least depth. max_depth is required.",
     "example": "Employee().recursive_join(to: Employee, min_depth: 1, max_depth: 5).",
     "params": [
       {
@@ -222,7 +278,7 @@
   },
   "shortest_path": {
     "heading": "shortest_path",
-    "description": "For each selected fact, the row for a target fact at the fewest links. max_depth is required.",
+    "description": "For each selected fact (needs import org.felidae.graph), the row for a target fact at the fewest links. max_depth is required.",
     "example": "Employee().shortest_path(to: grace, max_depth: 8).",
     "params": [
       {

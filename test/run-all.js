@@ -53,7 +53,7 @@ const suites = [
   { name: "editing helpers (doc comments, period fix, unused locals)", args: [path.join(HERE, "editing.test.js")] },
   { name: "grammar", args: [path.join(HERE, "grammar.test.js")] },
   { name: "quick menu", args: [path.join(HERE, "quickMenu.test.js")] },
-  { name: "interpreter lookup", args: [path.join(HERE, "interpreter.test.js")] },
+  { name: "compiler lookup", args: [path.join(HERE, "compiler.test.js")] },
   {
     name: "folding",
     args: [path.join(HERE, "folding.test.js"), ...(foldingCorpusFile ? [foldingCorpusFile] : [])]

@@ -27,8 +27,8 @@ export function menuEntries(state: MenuState): MenuEntry[] {
     }
     entries.push({ label: "$(run) Run the def under the cursor", detail: "Shift+Enter runs it and moves to the next def", command: "felidae.runCell" });
     entries.push({ label: "$(run-all) Run all defs", detail: "Every def in this file, one after another", command: "felidae.runAllCells" });
-    entries.push({ label: "$(terminal) Open REPL", detail: "felidae --repl in this file's folder", command: "felidae.openRepl" });
-    entries.push({ label: "$(sync) Check this file", detail: "Ask the interpreter's parser again now", command: "felidae.checkFile" });
+    entries.push({ label: "$(terminal) Open REPL", detail: "felidae-repl in this file's folder", command: "felidae.openRepl" });
+    entries.push({ label: "$(sync) Check this file", detail: "Ask the compiler's parser again now", command: "felidae.checkFile" });
   }
   entries.push({ label: "$(checklist) Check all Felidae files", detail: "Every .fx file in the workspace", command: "felidae.checkWorkspace" });
   const problems = state.errors + state.warnings;
@@ -37,7 +37,7 @@ export function menuEntries(state: MenuState): MenuEntry[] {
     detail: problems === 0 ? "None in this file" : state.errors + " error(s), " + state.warnings + " warning(s) in this file",
     command: "workbench.actions.view.problems"
   });
-  entries.push({ label: "$(settings-gear) Select interpreter", detail: "Choose the felidae executable", command: "felidae.selectInterpreter" });
+  entries.push({ label: "$(settings-gear) Select compiler", detail: "Choose the felidae executable", command: "felidae.selectCompiler" });
   entries.push({ label: "$(output) Show output", detail: "The extension's log", command: "felidae.showOutput" });
   return entries;
 }

@@ -76,8 +76,20 @@ interface Breakpoint {
   classes: Set<bigint>;
 }
 
+// A stack frame as the DAP client knows it. JDWP invalidates a thread's frameIDs after ANY method invocation on it
+// (ObjectReference/ClassType InvokeMethod resumes the thread for the call, even single-threaded): `$show`, a watch
+// expression, or expanding a List/Map all do this. `depth` (the frame's position, innermost first, from
+// ThreadReference.Frames) survives the call - the stack is the same shape when it returns - so a stale entry is
+// refreshed by re-fetching the frames and re-reading that position, in `freshFrame` below.
+interface FrameEntry {
+  thread: bigint;
+  frame: Frame;
+  depth: number;
+  generation: number;
+}
+
 type Handle =
-  | { kind: "locals"; thread: bigint; frame: Frame }
+  | { kind: "locals"; entry: FrameEntry }
   | { kind: "statics"; thread: bigint; classId: bigint }
   | { kind: "object"; thread: bigint; context: bigint; objectId: bigint; classId: bigint; view: "fields" | "list" | "map" | "array" }
   | { kind: "entry"; thread: bigint; context: bigint; key: JdwpValue; value: JdwpValue };
@@ -175,7 +187,7 @@ export class FelidaeDebugSession {
   private proc?: childProcess.ChildProcess;
   private attached = false;
   private program = "";
-  private interpreter = "";
+  private compilerPath = "";
   private sourceDirs: string[] = [];
   private stopOnEntry = false;
   private entryRequest?: number;
@@ -198,11 +210,18 @@ export class FelidaeDebugSession {
   private threadIds = new Map<bigint, number>();
   private threadById = new Map<number, bigint>();
   private stoppedThread?: bigint;
-  private frames = new Map<number, { thread: bigint; frame: Frame }>();
+  private frames = new Map<number, FrameEntry>();
+  // Bumped for a thread by every method invocation on it; see FrameEntry and freshFrame.
+  private invokeGeneration = new Map<bigint, number>();
   private handles = new Map<number, Handle>();
   private nextHandle = 1;
   private stepRequest?: number;
   private stepReason = "step";
+  private stepDepth = STEP_OVER;
+  // Where stepping began: a step that lands back on this exact (class, method, line) - the JVM dispatching into an
+  // exception handler whose first bytecode shares the try body's last line, a step out of a one-line method into a
+  // call on the same source line, ... - is not a real step yet, so it is re-armed instead of shown to the user.
+  private stepStart?: { classId: bigint; methodId: bigint; line: number };
   private sourcePaths = new Map<string, string | undefined>();
   private sourceReferences = new Map<string, number>();
   private sourceContents = new Map<number, string>();
@@ -315,14 +334,14 @@ export class FelidaeDebugSession {
     if (args.classpath) options.push("--classpath", String(args.classpath));
     if (args.libraryPath) options.push("--library-path", String(args.libraryPath));
     const all = [...felidaeArguments, ...options, this.program, ...((args.args as string[] | undefined) ?? []).map(String)];
-    return this.interpreter.endsWith(".jar")
-      ? [String(args.javaPath ?? "java"), ["-jar", this.interpreter, ...all]]
-      : [this.interpreter, all];
+    return this.compilerPath.endsWith(".jar")
+      ? [String(args.javaPath ?? "java"), ["-jar", this.compilerPath, ...all]]
+      : [this.compilerPath, all];
   }
 
   private prepare(args: any): { cwd: string; env: NodeJS.ProcessEnv } {
     this.program = path.resolve(String(args.program));
-    this.interpreter = String(args.interpreterPath || "felidae");
+    this.compilerPath = String(args.compilerPath || "felidae");
     this.stopOnEntry = args.stopOnEntry === true;
     this.sourceDirs = [path.dirname(this.program), ...((args.sourceDirs as string[] | undefined) ?? [])];
     const env = { ...process.env };
@@ -423,7 +442,7 @@ export class FelidaeDebugSession {
   private async attach(args: any): Promise<unknown> {
     this.attached = true;
     this.program = args.program ? path.resolve(String(args.program)) : "";
-    this.interpreter = String(args.interpreterPath ?? "");
+    this.compilerPath = String(args.compilerPath ?? "");
     this.sourceDirs = [...((args.sourceDirs as string[] | undefined) ?? []), ...(this.program ? [path.dirname(this.program)] : [])];
     this.stopOnEntry = args.stopOnEntry === true;
     await this.connectWithRetry(String(args.host ?? "127.0.0.1"), Number(args.port), Number(args.timeout ?? 10000));
@@ -760,11 +779,22 @@ export class FelidaeDebugSession {
             await conn.clearEvent(EventKind.SingleStep, this.stepRequest).catch(() => undefined);
             this.stepRequest = undefined;
           }
-          // A step that ended in generated plumbing (the entry point, no line information) just runs on.
           const location = event.location!;
           const method = (await this.loadClass(location.classId))?.methods.get(location.methodId);
-          if (method && method.lines.length > 0) stop ??= { thread: event.thread!, reason: this.stepReason };
-          else resume = true;
+          const line = method ? this.lineAt(method, location.index) : undefined;
+          const backAtStart = !!(method && line !== undefined && this.stepStart
+            && this.stepStart.classId === location.classId && this.stepStart.methodId === location.methodId && this.stepStart.line === line);
+          if (!method || method.lines.length === 0) {
+            // Generated plumbing (the entry point, no line information): run on.
+            resume = true;
+          } else if (backAtStart) {
+            // Landed back on the exact line stepping began at: the JVM dispatching into an exception handler whose
+            // first bytecode is still tagged with the try body's line, most often. Step again instead of stopping.
+            await this.rearmStep(event.thread!);
+            resume = true;
+          } else {
+            stop ??= { thread: event.thread!, reason: this.stepReason };
+          }
           this.stepReason = "step";
           break;
         }
@@ -876,13 +906,12 @@ export class FelidaeDebugSession {
 
   // The (kind, message) a catch variable would hold, from the program's own $caught.
   private async exceptionView(stopped: StoppedException): Promise<{ kind: string; message: string; type: string }> {
-    const conn = this.conn!;
     const type = (await this.typeOf(stopped.exception)).signature;
     let kind = typeDisplayName(type);
     let message = "";
     try {
       const caught = await this.caughtMethod(stopped.context);
-      const view = await conn.invokeStatic(stopped.context, stopped.thread, caught, [{ tag: "L", value: stopped.exception }]);
+      const view = await this.doInvokeStatic(stopped.context, stopped.thread, caught, [{ tag: "L", value: stopped.exception }]);
       if (view.exception === null && typeof view.value.value === "bigint") {
         const map: Remote = { remote: true, tag: "L", value: view.value.value };
         const host = this.host(stopped.thread, undefined, stopped.context);
@@ -953,20 +982,93 @@ export class FelidaeDebugSession {
     await this.conn!.resume();
   }
 
-  private async step(args: any, depth: number): Promise<unknown> {
+  private bumpGeneration(thread: bigint): void {
+    this.invokeGeneration.set(thread, (this.invokeGeneration.get(thread) ?? 0) + 1);
+  }
+
+  // conn.invoke/invokeStatic run the call on `thread` and bump its generation, so every cached FrameEntry of that
+  // thread is refreshed (see freshFrame) before it is read again.
+  private async doInvoke(objectId: bigint, thread: bigint, classId: bigint, methodId: bigint, args: JdwpValue[] = []) {
+    const result = await this.withoutExceptionWatch(() => this.conn!.invoke(objectId, thread, classId, methodId, args));
+    this.bumpGeneration(thread);
+    return result;
+  }
+
+  private async doInvokeStatic(classId: bigint, thread: bigint, methodId: bigint, args: JdwpValue[] = []) {
+    const result = await this.withoutExceptionWatch(() => this.conn!.invokeStatic(classId, thread, methodId, args));
+    this.bumpGeneration(thread);
+    return result;
+  }
+
+  // A user "caught exceptions" request matches ANY exception anywhere in the JVM (JDWP has no "only in my code"
+  // filter), including ones the JDK throws and catches internally as ordinary control flow - common in java.util,
+  // formatting, ... - while a method we invoke for rendering or evaluation runs. Each one would suspend the whole VM
+  // again mid-invoke (SuspendPolicy.All on a request already armed), corrupting the invoking thread's apparent
+  // state. The invoke protocol already reports its own exceptions in its reply, so our watch is never needed during
+  // one: it is cleared for the call and re-armed after, leaving user breakpoints on exceptions the program itself
+  // throws unaffected.
+  private async withoutExceptionWatch<T>(action: () => Promise<T>): Promise<T> {
     const conn = this.conn!;
+    const armed = this.exceptionRequest;
+    if (armed !== undefined) {
+      await conn.clearEvent(EventKind.Exception, armed).catch(() => undefined);
+      this.exceptionRequest = undefined;
+    }
+    try {
+      return await action();
+    } finally {
+      if (armed !== undefined) this.exceptionRequest = await conn.setEvent(EventKind.Exception, SuspendPolicy.All, [conn.exceptionOnlyModifier(0n, true, true)]);
+    }
+  }
+
+  // `entry.frame` as it stands if nothing invoked a method on its thread since it was captured, else the frame at
+  // the same depth, re-fetched (the stack is the same shape across an invoke: same depth, same locations, only the
+  // frameID handles are new).
+  private async freshFrame(entry: FrameEntry): Promise<Frame> {
+    const current = this.invokeGeneration.get(entry.thread) ?? 0;
+    if (entry.generation !== current) {
+      const frames = await this.conn!.frames(entry.thread);
+      const fresh = frames[entry.depth];
+      if (!fresh) throw new Error("This stack frame no longer exists");
+      entry.frame = fresh;
+      entry.generation = current;
+    }
+    return entry.frame;
+  }
+
+  private async step(args: any, depth: number): Promise<unknown> {
     const thread = this.threadById.get(args.threadId) ?? this.stoppedThread;
     if (thread === undefined) throw new Error("The program is not stopped");
+    this.stepDepth = depth;
+    this.stepStart = await this.currentLocation(thread);
+    await this.rearmStep(thread);
+    await this.resume();
+    return {};
+  }
+
+  // Where a thread is stopped right now, as (class, method, line); undefined for a frame with no line information.
+  // The first Felidae frame of the thread (stackTrace's own filtering): at a throw, the raw top frame can be
+  // `java.lang.Math.divideExact` or similar - exact arithmetic the compiler calls - which has no line of its own.
+  private async currentLocation(thread: bigint): Promise<{ classId: bigint; methodId: bigint; line: number } | undefined> {
+    for (const frame of await this.conn!.frames(thread)) {
+      const method = (await this.loadClass(frame.location.classId))?.methods.get(frame.location.methodId);
+      if (!method || method.lines.length === 0) continue;
+      const line = this.lineAt(method, frame.location.index);
+      if (line !== undefined) return { classId: frame.location.classId, methodId: frame.location.methodId, line };
+    }
+    return undefined;
+  }
+
+  // (Re-)issues the single-step request for `this.stepDepth`, clearing any still-pending one first. The count goes
+  // last: modifiers apply in order, and a count in front would be used up by an event the filters behind it then drop.
+  private async rearmStep(thread: bigint): Promise<void> {
+    const conn = this.conn!;
     if (this.stepRequest !== undefined) await conn.clearEvent(EventKind.SingleStep, this.stepRequest).catch(() => undefined);
-    // The count goes last: modifiers apply in order, and a count in front would be used up by an event the
-    // filters behind it then drop.
     this.stepRequest = await conn.setEvent(EventKind.SingleStep, SuspendPolicy.All, [
-      conn.stepModifier(thread, STEP_LINE, depth),
+      conn.stepModifier(thread, STEP_LINE, this.stepDepth),
       ...STEP_EXCLUDES.map((pattern) => conn.classExcludeModifier(pattern)),
       conn.countModifier(1)
     ]);
-    await this.resume();
-    return {};
   }
 
   // Pops the frame and steps into the call again: the function runs anew from its first line, with the same
@@ -974,7 +1076,8 @@ export class FelidaeDebugSession {
   private async restartFrame(args: any): Promise<unknown> {
     const found = this.frames.get(args.frameId);
     if (!found) throw new Error("Unknown frame");
-    await this.conn!.popFrames(found.thread, found.frame.frameId);
+    const frame = await this.freshFrame(found);
+    await this.conn!.popFrames(found.thread, frame.frameId);
     this.stepReason = "restart";
     await this.step({ threadId: this.threadId(found.thread) }, STEP_INTO);
     return {};
@@ -1043,10 +1146,10 @@ export class FelidaeDebugSession {
 
   // An embedded package (org/felidae/db/tidesdb.fx) has no file: its source is read from the compiler's jar.
   private embeddedSource(key: string): string | undefined {
-    if (!this.interpreter) return undefined;
-    const interpreter = path.resolve(this.interpreter);
-    const jars = interpreter.endsWith(".jar") ? [interpreter] : (() => {
-      const lib = path.join(path.dirname(path.dirname(interpreter)), "lib");
+    if (!this.compilerPath) return undefined;
+    const compilerPath = path.resolve(this.compilerPath);
+    const jars = compilerPath.endsWith(".jar") ? [compilerPath] : (() => {
+      const lib = path.join(path.dirname(path.dirname(compilerPath)), "lib");
       try {
         return fs.readdirSync(lib).filter((name) => name.endsWith(".jar")).map((name) => path.join(lib, name));
       } catch {
@@ -1100,13 +1203,16 @@ export class FelidaeDebugSession {
     const thread = this.threadById.get(args.threadId) ?? this.stoppedThread;
     if (thread === undefined || !this.conn) return { stackFrames: [], totalFrames: 0 };
     const stackFrames: unknown[] = [];
-    for (const frame of await this.conn.frames(thread)) {
+    const allFrames = await this.conn.frames(thread);
+    const generation = this.invokeGeneration.get(thread) ?? 0;
+    for (let depth = 0; depth < allFrames.length; depth++) {
+      const frame = allFrames[depth];
       const data = await this.loadClass(frame.location.classId);
       const method = data?.methods.get(frame.location.methodId);
       if (!data || !method || method.lines.length === 0) continue; // the JDK, drivers and generated plumbing
       const line = this.lineAt(method, frame.location.index) ?? method.lines[0].line;
       const id = 1000 + this.frames.size;
-      this.frames.set(id, { thread, frame });
+      this.frames.set(id, { thread, frame, depth, generation });
       const owner = felidaeClassName(data.signature);
       const fileClass = owner === path.basename(data.sourceFile, ".fx");
       const source = this.sourceOf(data);
@@ -1136,12 +1242,15 @@ export class FelidaeDebugSession {
   private async scopes(args: any): Promise<unknown> {
     const found = this.frames.get(args.frameId);
     if (!found) return { scopes: [] };
-    const scopes: unknown[] = [{ name: "Locals", presentationHint: "locals", variablesReference: this.newHandle({ kind: "locals", thread: found.thread, frame: found.frame }), expensive: false }];
-    if ((await this.staticFields(found.frame.location.classId)).length > 0) {
-      const data = this.classes.get(found.frame.location.classId);
+    const frame = await this.freshFrame(found);
+    // The handle keeps the FrameEntry itself (not a copy of `frame`), so a later invoke that stales it is caught
+    // the next time `variables` reads it.
+    const scopes: unknown[] = [{ name: "Locals", presentationHint: "locals", variablesReference: this.newHandle({ kind: "locals", entry: found }), expensive: false }];
+    if ((await this.staticFields(frame.location.classId)).length > 0) {
+      const data = this.classes.get(frame.location.classId);
       scopes.push({
         name: "Statics" + (data ? " (" + felidaeClassName(data.signature) + ")" : ""),
-        variablesReference: this.newHandle({ kind: "statics", thread: found.thread, classId: found.frame.location.classId }),
+        variablesReference: this.newHandle({ kind: "statics", thread: found.thread, classId: frame.location.classId }),
         expensive: false
       });
     }
@@ -1224,11 +1333,12 @@ export class FelidaeDebugSession {
     const count = Number(args.count ?? 0);
     switch (handle.kind) {
       case "locals": {
-        const visible = await this.visibleVariables(handle.frame);
+        const frame = await this.freshFrame(handle.entry);
+        const visible = await this.visibleVariables(frame);
         if (visible.length === 0) break;
-        const values = await conn.frameValues(handle.thread, handle.frame.frameId, visible.map((v) => ({ slot: v.slot, signature: v.signature })));
+        const values = await conn.frameValues(handle.entry.thread, frame.frameId, visible.map((v) => ({ slot: v.slot, signature: v.signature })));
         for (let i = 0; i < visible.length; ++i) {
-          variables.push(await this.variable(visible[i].name, values[i], handle.thread, handle.frame.location.classId, visible[i].signature, visible[i].name));
+          variables.push(await this.variable(visible[i].name, values[i], handle.entry.thread, frame.location.classId, visible[i].signature, visible[i].name));
         }
         break;
       }
@@ -1375,7 +1485,7 @@ export class FelidaeDebugSession {
   private async show(objectId: bigint, thread: bigint, context: bigint): Promise<string> {
     const conn = this.conn!;
     const method = await this.findMethod(context, "$show", this.showMethods);
-    const result = await conn.invokeStatic(context, thread, method, [{ tag: "L", value: objectId }, { tag: "Z", value: true }]);
+    const result = await this.doInvokeStatic(context, thread, method, [{ tag: "L", value: objectId }, { tag: "Z", value: true }]);
     if (result.exception !== null || typeof result.value.value !== "bigint") throw new Error("$show failed");
     return conn.stringValue(result.value.value);
   }
@@ -1392,10 +1502,11 @@ export class FelidaeDebugSession {
   }
 
   // The stopped program as the evaluator sees it: `frame` (default: the thread's top frame) and its class.
-  private host(thread: bigint, givenFrame: Frame | undefined, givenContext: bigint | undefined): EvalHost {
+  // `frameEntry`, when given, is re-validated on every read (freshFrame is a no-op unless a call since invalidated
+  // it), so an evaluation that invokes several methods in turn (`a.compute() + b`) keeps seeing the right frame.
+  private host(thread: bigint, frameEntry: FrameEntry | undefined, givenContext: bigint | undefined): EvalHost {
     const conn = this.conn!;
-    let framePromise: Promise<Frame | undefined> | undefined;
-    const frame = () => (framePromise ??= givenFrame ? Promise.resolve(givenFrame) : conn.frames(thread).then((frames) => frames[0]));
+    const frame = async (): Promise<Frame | undefined> => (frameEntry ? this.freshFrame(frameEntry) : (await conn.frames(thread))[0]);
     const context = async () => givenContext ?? (await frame())?.location.classId ?? this.classes.keys().next().value!;
     const remote = (value: JdwpValue): Value => {
       if (value.value === null) return null;
@@ -1409,7 +1520,7 @@ export class FelidaeDebugSession {
       if (classId === undefined) throw new Error("java.lang." + box + " is not loaded");
       const method = (await conn.methods(classId)).find((m) => m.name === "valueOf" && m.signature === "(" + primitive + ")Ljava/lang/" + box + ";");
       if (!method) throw new Error("no " + box + ".valueOf");
-      const result = await conn.invokeStatic(classId, thread, method.methodId, [value]);
+      const result = await this.doInvokeStatic(classId, thread, method.methodId, [value]);
       return result.value;
     };
     // A value as an argument of the given parameter type.
@@ -1440,7 +1551,7 @@ export class FelidaeDebugSession {
         const optional = await classBySignature("Ljava/util/Optional;");
         const of = optional === undefined ? undefined : (await conn.methods(optional)).find((m) => m.name === "of");
         if (optional === undefined || !of) throw new Error("java.util.Optional is not loaded");
-        return (await conn.invokeStatic(optional, thread, of.methodId, [{ tag: "s", value: await conn.createString(value.name) }])).value;
+        return (await this.doInvokeStatic(optional, thread, of.methodId, [{ tag: "s", value: await conn.createString(value.name) }])).value;
       }
       throw new Error("cannot pass this value");
     };
@@ -1510,13 +1621,13 @@ export class FelidaeDebugSession {
         const found = await method(runtime.typeId, name, args, false);
         const values: JdwpValue[] = [];
         for (let i = 0; i < args.length; i++) values.push(await argument(args[i], found.params[i]));
-        return outcome(await conn.invoke(target.value as bigint, thread, found.owner, found.info.methodId, values), await context());
+        return outcome(await this.doInvoke(target.value as bigint, thread, found.owner, found.info.methodId, values), await context());
       },
       invokeStatic: async (classId, name, args) => {
         const found = await method(classId, name, args, true);
         const values: JdwpValue[] = [];
         for (let i = 0; i < args.length; i++) values.push(await argument(args[i], found.params[i]));
-        return outcome(await conn.invokeStatic(classId, thread, found.info.methodId, values), await context());
+        return outcome(await this.doInvokeStatic(classId, thread, found.info.methodId, values), await context());
       },
       index: async (target, index) => {
         const runtime = await this.typeOf(target.value as bigint);
@@ -1561,8 +1672,8 @@ export class FelidaeDebugSession {
     const thread = found?.thread ?? this.stoppedThread;
     if (thread === undefined || !this.conn) throw new Error("The program is not stopped");
     const expression = String(args.expression ?? "").trim();
-    const context = found?.frame.location.classId ?? (await this.topContext(thread));
-    const evaluator = new Evaluator(this.host(thread, found?.frame, context));
+    const context = found ? (await this.freshFrame(found)).location.classId : await this.topContext(thread);
+    const evaluator = new Evaluator(this.host(thread, found, context));
     const value = await evaluator.evaluate(expression);
     const rendered = await this.renderValue(value, thread, context);
     return { result: rendered.text, type: rendered.type, variablesReference: rendered.reference ?? 0, indexedVariables: rendered.indexed };
@@ -1583,10 +1694,10 @@ export class FelidaeDebugSession {
         targets.push({ label, type });
       }
     };
-    const context = found?.frame.location.classId ?? (await this.topContext(thread));
+    const context = found ? (await this.freshFrame(found)).location.classId : await this.topContext(thread);
     if (member) {
       try {
-        const evaluator = new Evaluator(this.host(thread, found?.frame, context));
+        const evaluator = new Evaluator(this.host(thread, found, context));
         const value = await evaluator.evaluate(member[1]);
         if (isRemote(value) && typeof value.value === "bigint") {
           const runtime = await this.typeOf(value.value);
@@ -1600,7 +1711,7 @@ export class FelidaeDebugSession {
       }
       return { targets };
     }
-    const frame = found?.frame ?? (await this.conn.frames(thread))[0];
+    const frame = found ? await this.freshFrame(found) : (await this.conn.frames(thread))[0];
     for (const variable of await this.visibleVariables(frame)) add(variable.name, "variable");
     for (const field of await this.staticFields(frame.location.classId)) add(field.name, "field");
     for (const data of this.classes.values()) add(felidaeClassName(data.signature), "class");

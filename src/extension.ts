@@ -9,7 +9,8 @@ import {
 import * as ml from "./mlRanking";
 import { registerCells } from "./cellUi";
 import { docCommentAbove, findUnusedLocals, isDefWord, conditionalEndInsertion } from "./editing";
-import { InterpreterStatus, resolveInterpreterFor } from "./interpreterUi";
+import { CompilerStatus, resolveCompilerFor } from "./compilerUi";
+import { compilerCommandLine } from "./compiler";
 import { menuEntries } from "./quickMenu";
 import { registerRepl } from "./repl";
 import { DapMessage, FelidaeDebugSession } from "./debug/session";
@@ -45,7 +46,7 @@ interface Token {
   end: number;
 }
 
-// The interpreter's own check reports lexical errors; the editor lexer only
+// The compiler's own check reports lexical errors; the editor lexer only
 // needs to tokenise the rest of the file without stopping at them.
 interface LexResult {
   tokens: Token[];
@@ -133,7 +134,7 @@ function quotePosixShell(value: string): string {
   return `'${String(value).replace(/'/g, `'"'"'`)}'`;
 }
 
-// The "Felidae" output channel: interpreter discovery, every diagnostics
+// The "Felidae" output channel: compiler discovery, every diagnostics
 // check (timing, exit code, stderr, counts), run and debug launches, and the
 // debug adapter's lifecycle. Levels follow VS Code's per-channel log level
 // (Developer: Set Log Level...), so "trace" shows the raw debug protocol.
@@ -535,6 +536,20 @@ function definitionPattern(name: string): RegExp {
   return new RegExp(`^(?:(?:(?:def|define)\\s+)?${qualifiedName}(?:\\s+extend\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*\\(|class\\s+${qualifiedName}\\b)`);
 }
 
+// A hover's body, laid out the way the Java and Kotlin extensions lay out theirs: a signature code block, the
+// prose, then a "Parameters" list (one bullet per named argument, with its type when one is known) - rather than
+// one undifferentiated block of text and a code sample.
+function appendSignatureHover(markdown: vscode.MarkdownString, label: string, params: FelidaeParam[], detail: string): void {
+  const signature = params.map((param) => (param.type ? `${param.name}: ${param.type}` : `${param.name}:`)).join(", ");
+  markdown.appendCodeblock(`${label}(${signature})`, "felidae");
+  markdown.appendMarkdown(`\n${detail}\n`);
+  if (params.length > 0) {
+    markdown.appendMarkdown(
+      "\n**Parameters**\n\n" + params.map((param) => `- \`${param.name}\`` + (param.type ? ` — ${param.type}` : "")).join("\n") + "\n"
+    );
+  }
+}
+
 class FelidaeHoverProvider implements vscode.HoverProvider {
   provideHover(document: vscode.TextDocument, position: vscode.Position): vscode.ProviderResult<vscode.Hover> {
     const name = getCallNameAtPosition(document, position);
@@ -543,8 +558,8 @@ class FelidaeHoverProvider implements vscode.HoverProvider {
     const doc = builtinDocs[name];
     if (doc) {
       const markdown = new vscode.MarkdownString();
-      markdown.appendMarkdown(`### ${doc.heading}\n\n`);
-      markdown.appendMarkdown(`${doc.description}\n\n`);
+      appendSignatureHover(markdown, doc.heading, doc.params ?? [], doc.description);
+      markdown.appendMarkdown("\n**Example**\n");
       markdown.appendCodeblock(doc.example, "felidae");
       return new vscode.Hover(markdown);
     }
@@ -555,20 +570,15 @@ class FelidaeHoverProvider implements vscode.HoverProvider {
     const resolved = resolveCall(document, name);
     if (!resolved) return undefined;
 
-    const signature = resolved.params
-      .map((param) => (param.type ? `${param.name}: ${param.type}` : `${param.name}:`))
-      .join(", ");
     const markdown = new vscode.MarkdownString();
-    markdown.appendMarkdown(`### ${resolved.label}\n\n`);
-    markdown.appendMarkdown(`${resolved.detail}\n\n`);
-    markdown.appendCodeblock(`${resolved.label}(${signature})`, "felidae");
-    // The `#` comment lines directly above the declaration are its documentation.
+    appendSignatureHover(markdown, resolved.label, resolved.params, resolved.detail);
+    // The doc-comment lines directly above the declaration are its documentation.
     const declaration = declarationsOf(document).find((entry) => entry.name === resolved.label);
     if (declaration) {
       const lines: string[] = [];
       for (let line = 0; line < document.lineCount; line++) lines.push(document.lineAt(line).text);
       const doc = docCommentAbove(lines, document.positionAt(declaration.nameOffset).line);
-      if (doc.length > 0) markdown.appendMarkdown(doc.join("  \n") + "\n\n");
+      if (doc.length > 0) markdown.appendMarkdown("\n" + doc.join("  \n") + "\n");
     }
     return new vscode.Hover(markdown);
   }
@@ -996,7 +1006,7 @@ class FelidaeTypeHierarchyProvider implements vscode.TypeHierarchyProvider {
 }
 
 // Tasks: Terminal > Run Task > felidae. The "$felidae" problem matcher turns
-// interpreter errors ("error: file.fx: ... at line N, column M") into entries
+// compiler errors ("error: file.fx: ... at line N, column M") into entries
 // in the Problems panel.
 class FelidaeTaskProvider implements vscode.TaskProvider {
   provideTasks(): vscode.Task[] {
@@ -1017,11 +1027,12 @@ class FelidaeTaskProvider implements vscode.TaskProvider {
   }
 
   private build(definition: vscode.TaskDefinition, uri: vscode.Uri): vscode.Task {
-    const executable = resolveInterpreterPath(uri);
+    const compilerPath = resolveCompilerPath(uri);
     const args = definition.command === "check" ? [definition.file, "--check-json"] : [definition.file];
+    const { command, args: commandArgs } = compilerCommandLine(compilerPath, args);
     const execution = new vscode.ShellExecution(
-      { value: executable, quoting: vscode.ShellQuoting.Strong },
-      args.map((value: string) => ({ value, quoting: vscode.ShellQuoting.Strong }))
+      { value: command, quoting: vscode.ShellQuoting.Strong },
+      commandArgs.map((value: string) => ({ value, quoting: vscode.ShellQuoting.Strong }))
     );
     const folder = vscode.workspace.getWorkspaceFolder(uri);
     const task = new vscode.Task(
@@ -1307,7 +1318,7 @@ class FelidaeSemanticTokensProvider implements vscode.DocumentSemanticTokensProv
       // value (a call argument, list item, or comparison operand) rather than
       // a named-arg key, a type annotation, or a call/predicate name. Type
       // annotations (`input: Person`) are excluded by the leading-uppercase
-      // check, matching the interpreter's own convention for type names.
+      // check, matching the compiler's own convention for type names.
       // Builtin primitive type names (`value: int`) are lowercase, so they
       // need their own exclusion alongside the uppercase-type-name check.
       const isBuiltinTypeName = FELIDAE_BUILTIN_TYPE_NAMES.has(token.text);
@@ -2075,7 +2086,7 @@ class FelidaeRenameProvider implements vscode.RenameProvider {
   ): vscode.ProviderResult<vscode.Range> {
     const found = identifierAt(document, position);
     if (!found) throw new Error("Select a Felidae identifier to rename.");
-    // Builtins live in the interpreter, not in the user's sources.
+    // Builtins live in the compiler, not in the user's sources.
     if (builtinDocs[found.name] || isLibraryNamespace(found.name)) {
       throw new Error(`'${found.name}' is a Felidae builtin and cannot be renamed.`);
     }
@@ -2169,20 +2180,19 @@ function isExecutableFile(candidate: string): boolean {
   } catch { return false; }
 }
 
-// "felidae" is the one interpreter binary this project builds - it reads
-// source.fx, parses it to an AST, and executes that AST directly; there is
-// no separate compiler or VM binary to run first (see README.md/code.md).
-// The interpreter for a file: the setting (or the workspace's .vscode/felidae.json),
-// FELIDAE_PATH, a build under the workspace or the file's folder and its parents
-// (release before debug, including build/debug/x64/Debug), then PATH.
-function resolveInterpreterPath(documentUri: vscode.Uri): string {
-  return resolveInterpreterFor(documentUri, workspaceExecutableSetting(documentUri, "interpreterPath")).path;
+// felidae compiles a .fx file to JVM bytecode and runs it; it is not an interpreter. The
+// resolved path is either a native wrapper or (the normal case) build/java/felidae.jar,
+// launched via `java -jar` (see compiler.ts's compilerCommandLine and README.md/code.md).
+// The compiler for a file: the setting (or the workspace's .vscode/felidae.json),
+// FELIDAE_PATH, a build under the workspace or the file's folder and its parents, then PATH.
+function resolveCompilerPath(documentUri: vscode.Uri): string {
+  return resolveCompilerFor(documentUri, workspaceExecutableSetting(documentUri, "compilerPath")).path;
 }
 
-type WorkspaceExecutableSetting = "interpreterPath";
+type WorkspaceExecutableSetting = "compilerPath";
 
 interface FelidaeWorkspaceConfig {
-  interpreterPath?: unknown;
+  compilerPath?: unknown;
 }
 
 function workspaceExecutableSetting(
@@ -2205,51 +2215,16 @@ function workspaceExecutableSetting(
   }
 }
 
-function releaseExecutableCandidates(name: string): string[] {
-  const executable = `${name}${process.platform === "win32" ? ".exe" : ""}`;
-  if (process.platform === "win32") {
-    return [
-      `build/windows-x64/release/dist/bin/${executable}`,
-      `build/release/dist/bin/${executable}`,
-      `dist/bin/${executable}`,
-      `release/bin/${executable}`
-    ];
-  }
-  if (process.platform === "darwin") {
-    const architecture = process.arch === "arm64" ? "arm64" : "x86_64";
-    return [
-      `build/macos-${architecture}/release/dist/bin/${executable}`,
-      `build/release/dist/bin/${executable}`,
-      `dist/bin/${executable}`,
-      `release/bin/${executable}`
-    ];
-  }
-  return [
-    `build/release/dist/bin/${executable}`,
-    `dist/bin/${executable}`,
-    `release/bin/${executable}`
-  ];
-}
-
-function resolveReleaseExecutable(documentUri: vscode.Uri, configuredPath: string | undefined, name: string): string {
-  if (configuredPath?.trim()) {
-    const configured = configuredPath.trim();
-    const local = withPlatformExecutableSuffix(resolveConfiguredPath(documentUri, configured));
-    if (isExecutableFile(local) || /[/\\]/.test(configured)) return local;
-    const executable = withPlatformExecutableSuffix(configured);
-    return (process.env.PATH || "").split(path.delimiter).filter(Boolean)
-      .map(directory => path.resolve(directory, executable)).find(isExecutableFile) || local;
-  }
-  const candidates = releaseExecutableCandidates(name)
-    .map((candidate) => resolveConfiguredPath(documentUri, candidate));
-  const executable = `${name}${process.platform === "win32" ? ".exe" : ""}`;
-  candidates.push(...(process.env.PATH || "").split(path.delimiter).filter(Boolean)
-    .map(directory => path.resolve(directory, executable)));
-  return candidates.find(isExecutableFile) ?? candidates[0];
-}
-
-function resolveToolingPath(documentUri: vscode.Uri): string {
-  return resolveInterpreterPath(documentUri);
+// A debug configuration's own compilerPath override, resolved relative to the workspace
+// folder (an absolute path, or one found on PATH, is used as written). Unlike resolveCompilerPath
+// this never searches build/java/felidae.jar - a user-supplied override is trusted as given.
+function resolveConfiguredCompilerPath(documentUri: vscode.Uri, configuredPath: string): string {
+  const configured = configuredPath.trim();
+  const local = withPlatformExecutableSuffix(resolveConfiguredPath(documentUri, configured));
+  if (isExecutableFile(local) || /[/\\]/.test(configured)) return local;
+  const executable = withPlatformExecutableSuffix(configured);
+  return (process.env.PATH || "").split(path.delimiter).filter(Boolean)
+    .map(directory => path.resolve(directory, executable)).find(isExecutableFile) || local;
 }
 
 function resolveConfiguredPath(documentUri: vscode.Uri, configuredPath: string): string {
@@ -2265,26 +2240,22 @@ function resolveConfiguredPath(documentUri: vscode.Uri, configuredPath: string):
   return configuredPath;
 }
 
-async function ensureInterpreterInstalled(
-  interpreterPath: string,
-  label: string,
-  settingsQuery: "felidae.interpreterPath" = "felidae.interpreterPath"
-): Promise<boolean> {
-  if (isExecutableFile(interpreterPath)) return true;
-  log("error", label + " is missing or not executable: " + interpreterPath);
+async function ensureCompilerInstalled(compilerPath: string, label: string): Promise<boolean> {
+  if (isExecutableFile(compilerPath)) return true;
+  log("error", label + " is missing or not executable: " + compilerPath);
   const downloadLabel = "Download Felidae";
   const choice = await vscode.window.showWarningMessage(
-    `${label} is missing or is not executable: ${interpreterPath}`,
-    "Select Interpreter",
+    `${label} is missing or is not executable: ${compilerPath}`,
+    "Select Compiler",
     downloadLabel,
     "Open Settings"
   );
-  if (choice === "Select Interpreter") {
-    await vscode.commands.executeCommand("felidae.selectInterpreter");
+  if (choice === "Select Compiler") {
+    await vscode.commands.executeCommand("felidae.selectCompiler");
   } else if (choice === downloadLabel) {
     await vscode.env.openExternal(vscode.Uri.parse("https://github.com/xnvtserver/Felidae/releases"));
   } else if (choice === "Open Settings") {
-    await vscode.commands.executeCommand("workbench.action.openSettings", settingsQuery);
+    await vscode.commands.executeCommand("workbench.action.openSettings", "felidae.compilerPath");
   }
   return false;
 }
@@ -2305,7 +2276,7 @@ interface FelidaeSymbolSummary {
   unresolvedImports: string[];
 }
 
-// AST-derived symbols returned by the same interpreter check that owns
+// AST-derived symbols returned by the same compiler check that owns
 // diagnostics. The summary shape is retained for completion/signature code,
 // but there is no second parser process or extension-side semantic validator.
 const symbolSummaryCache = new Map<string, FelidaeSymbolSummary>();
@@ -2347,13 +2318,13 @@ function runtimeCheckDiagnostics(document: vscode.TextDocument): Promise<vscode.
       resolve([]);
       return;
     }
-    const interpreterPath = resolveToolingPath(document.uri);
-    if (!isExecutableFile(interpreterPath)) {
-      log("warn", "check skipped, interpreter not found: " + interpreterPath);
+    const compilerPath = resolveCompilerPath(document.uri);
+    if (!isExecutableFile(compilerPath)) {
+      log("warn", "check skipped, compiler not found: " + compilerPath);
       const range = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 1));
       resolve([new vscode.Diagnostic(
         range,
-        `Felidae interpreter not found: ${interpreterPath}. Parser and AST validation via --check-json is disabled.`,
+        `Felidae compiler not found: ${compilerPath}. Parser and AST validation via --check-json is disabled.`,
         vscode.DiagnosticSeverity.Warning
       )]);
       return;
@@ -2361,10 +2332,11 @@ function runtimeCheckDiagnostics(document: vscode.TextDocument): Promise<vscode.
     const key = document.uri.toString();
     activeCheckProcesses.get(key)?.kill();
     const startedAt = Date.now();
-    log("debug", "check: " + interpreterPath + " --check-json --stdin " + document.uri.fsPath);
+    const { command, args: checkArgs } = compilerCommandLine(compilerPath, ["--check-json", "--stdin", document.uri.fsPath]);
+    log("debug", "check: " + command + " " + checkArgs.join(" "));
     const check = childProcess.execFile(
-      interpreterPath,
-      ["--check-json", "--stdin", document.uri.fsPath],
+      command,
+      checkArgs,
       { cwd: path.dirname(document.uri.fsPath), windowsHide: true, timeout: 15000 },
       (error, stdout, stderr) => {
         if (activeCheckProcesses.get(key) === check) activeCheckProcesses.delete(key);
@@ -2397,7 +2369,7 @@ function runtimeCheckDiagnostics(document: vscode.TextDocument): Promise<vscode.
   });
 }
 
-// Where an interpreter error message points. Messages say "line N, column M"
+// Where a compiler error message points. Messages say "line N, column M"
 // (older ones "at N:M"). A message that starts with a different file's path is
 // about an imported file, so its line number must not be applied to this one.
 function diagnosticPositionInMessage(message: string, documentPath: string): { line: number; column: number } {
@@ -2635,8 +2607,8 @@ async function runQuery(uri?: vscode.Uri): Promise<void> {
     return;
   }
 
-  const interpreterPath = resolveInterpreterPath(document.uri);
-  const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
+  const compilerPath = resolveCompilerPath(document.uri);
+  const installed = await ensureCompilerInstalled(compilerPath, "Felidae compiler");
   if (!installed) return;
   const trimmedQuery = query.trim();
   const normalizedQuery = trimmedQuery.endsWith(".") ? trimmedQuery : `${trimmedQuery}.`;
@@ -2647,8 +2619,9 @@ async function runQuery(uri?: vscode.Uri): Promise<void> {
   fs.writeFileSync(queryFile, cellProgram(path.basename(document.uri.fsPath), normalizedQuery));
   outputChannel?.show(true);
   log("info", "query: " + normalizedQuery);
+  const { command: queryCommand, args: queryArgs } = compilerCommandLine(compilerPath, [queryFile]);
   await new Promise<void>((resolve) => {
-    childProcess.execFile(interpreterPath, [queryFile], { cwd: directory, timeout: 60000, windowsHide: true }, (error, stdout, stderr) => {
+    childProcess.execFile(queryCommand, queryArgs, { cwd: directory, timeout: 60000, windowsHide: true }, (error, stdout, stderr) => {
       fs.rmSync(queryFile, { force: true });
       fs.rmSync(queryFile.replace(/\.fx$/, ".class"), { force: true });
       const text = (String(stdout) + String(stderr)).trimEnd() || (error ? error.message : "");
@@ -2683,11 +2656,12 @@ async function runMain(uri?: vscode.Uri): Promise<void> {
     await document.save();
   }
 
-  const interpreterPath = resolveInterpreterPath(document.uri);
+  const compilerPath = resolveCompilerPath(document.uri);
   const programPath = document.uri.fsPath;
-  const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
+  const installed = await ensureCompilerInstalled(compilerPath, "Felidae compiler");
   if (!installed) return;
-  runInTerminal(interpreterPath, [programPath], path.dirname(programPath));
+  const { command, args } = compilerCommandLine(compilerPath, [programPath]);
+  runInTerminal(command, args, path.dirname(programPath));
 }
 
 async function debugMain(uri?: vscode.Uri): Promise<void> {
@@ -2707,8 +2681,10 @@ async function debugMain(uri?: vscode.Uri): Promise<void> {
   }
 
   // `felidae --debug` compiles the program and starts its JVM suspended; the debug adapter attaches to it.
-  const interpreterPath = resolveInterpreterPath(document.uri);
-  const installed = await ensureInterpreterInstalled(interpreterPath, "Felidae interpreter");
+  // The pre-flight check here only gives a friendly "Select Compiler/Download/Open Settings" prompt before
+  // starting; it is not threaded into the launch config below - FelidaeDebugConfigurationProvider.resolveDebugConfiguration
+  // is the single place that resolves compilerPath for the actual launch, so there is exactly one owner of that decision.
+  const installed = await ensureCompilerInstalled(resolveCompilerPath(document.uri), "Felidae compiler");
   if (!installed) return;
 
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -2717,7 +2693,6 @@ async function debugMain(uri?: vscode.Uri): Promise<void> {
     request: "launch",
     name: "Debug Felidae Main",
     program: document.uri.fsPath,
-    interpreterPath,
     stopOnEntry: true
   });
 }
@@ -2759,9 +2734,9 @@ class FelidaeDebugConfigurationProvider implements vscode.DebugConfigurationProv
     const anchor = typeof config.program === "string" && path.isAbsolute(config.program)
       ? vscode.Uri.file(config.program)
       : folder?.uri ?? activeDocument?.uri ?? vscode.Uri.file(workspacePath ?? "");
-    if (!config.interpreterPath?.trim()) config.interpreterPath = resolveInterpreterPath(anchor);
-    else if (!config.interpreterPath.includes("${"))
-      config.interpreterPath = resolveReleaseExecutable(anchor, config.interpreterPath, "felidae");
+    if (!config.compilerPath?.trim()) config.compilerPath = resolveCompilerPath(anchor);
+    else if (!config.compilerPath.includes("${"))
+      config.compilerPath = resolveConfiguredCompilerPath(anchor, config.compilerPath);
     config.stopOnEntry ??= false;
     return config;
   }
@@ -2804,7 +2779,7 @@ export function activate(context: vscode.ExtensionContext): void {
       return diagnostic;
     }));
   };
-  // A check already done for this text and interpreter is not repeated (switching
+  // A check already done for this text and compiler is not repeated (switching
   // tabs asks for one every time).
   const lastCheckStamp = new Map<string, string>();
   // Files whose problems came from "Check All Felidae Files": they stay listed
@@ -2823,7 +2798,7 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     if (fromEdit && mode !== "onType") return;
-    const stamp = document.version + "|" + resolveInterpreterPath(document.uri);
+    const stamp = document.version + "|" + resolveCompilerPath(document.uri);
     if (lastCheckStamp.get(key) === stamp) return;
     lastCheckStamp.set(key, stamp);
     const generation = (checkGeneration.get(key) ?? 0) + 1;
@@ -2842,7 +2817,7 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   };
 
-  // Check every .fx file in the workspace, one interpreter process at a time (a
+  // Check every .fx file in the workspace, one compiler process at a time (a
   // failing file is reported and the next one is still checked), like the
   // project-wide diagnostics of Erlang LS and ElixirLS.
   const checkWorkspace = async (): Promise<void> => {
@@ -2863,7 +2838,7 @@ export function activate(context: vscode.ExtensionContext): void {
           const published = dedupeDiagnostics(await runtimeCheckDiagnostics(document));
           workspaceChecked.add(key);
           diagnostics.set(uri, published);
-          lastCheckStamp.set(key, document.version + "|" + resolveInterpreterPath(uri));
+          lastCheckStamp.set(key, document.version + "|" + resolveCompilerPath(uri));
           totals.files++;
           totals.errors += published.filter((item) => item.severity === vscode.DiagnosticSeverity.Error).length;
           totals.warnings += published.filter((item) => item.severity === vscode.DiagnosticSeverity.Warning).length;
@@ -2931,25 +2906,27 @@ export function activate(context: vscode.ExtensionContext): void {
   refreshStatusItem();
 
   registerCells(context, {
-    resolveInterpreterPath,
-    ensureInterpreterInstalled: (interpreterPath) => ensureInterpreterInstalled(interpreterPath, "Felidae interpreter"),
+    resolveCompilerPath,
+    ensureCompilerInstalled: (compilerPath) => ensureCompilerInstalled(compilerPath, "Felidae compiler"),
     blockPairs: (document) => cachedEndBlockPairs(document).pairs,
     log
   });
 
-  const interpreterStatus = new InterpreterStatus(
+  // Constructing CompilerStatus registers its status-bar item and command into
+  // context.subscriptions as a side effect; the local binding itself is unused.
+  const compilerStatus = new CompilerStatus(
     context,
-    (uri) => (uri ? workspaceExecutableSetting(uri, "interpreterPath") : undefined),
+    (uri) => (uri ? workspaceExecutableSetting(uri, "compilerPath") : undefined),
     () => {
-      // A different interpreter: every open file is checked again.
+      // A different compiler: every open file is checked again.
       lastCheckStamp.clear();
       for (const document of vscode.workspace.textDocuments) refreshDiagnostics(document);
     }
   );
-  void interpreterStatus;
+  void compilerStatus;
   registerRepl(context, {
-    resolveInterpreterPath,
-    ensureInterpreterInstalled: (interpreterPath) => ensureInterpreterInstalled(interpreterPath, "Felidae interpreter"),
+    resolveCompilerPath,
+    ensureCompilerInstalled: (compilerPath) => ensureCompilerInstalled(compilerPath, "Felidae compiler"),
     blockPairs: (document) => cachedEndBlockPairs(document).pairs,
     log: (level, message) => log(level, message)
   });

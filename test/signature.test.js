@@ -69,27 +69,27 @@ check("nested default stays one param",
   T.collectHeadParams("opts: {a: 1, b: 2}, other: string").map(p => p.name), ["opts", "other"]);
 check("ignores := ", T.collectHeadParams("x := 1").map(p => p.name), []);
 
-console.log("\nsignature help (builtin Link):");
-const d1 = doc('def main() =>\n    Link(');
+console.log("\nsignature help (builtin Graph.Link):");
+const d1 = doc('def main() =>\n    Graph.Link(');
 const sig = new T.FelidaeSignatureHelpProvider();
-const h1 = sig.provideSignatureHelp(d1, new vscode.Position(1, 9));
-check("label", h1 && h1.signatures[0].label, "Link(from:, to:, type:, properties:)");
+const h1 = sig.provideSignatureHelp(d1, new vscode.Position(1, 15));
+check("label", h1 && h1.signatures[0].label, "Graph.Link(from:, to:, type:, properties:)");
 check("activeParameter at open paren", h1 && h1.activeParameter, 0);
 
 console.log("\nactive parameter follows the typed key (order-independent):");
-const d2 = doc('def main() =>\n    Link(to: x, from: ');
-const h2 = sig.provideSignatureHelp(d2, new vscode.Position(1, 23));
+const d2 = doc('def main() =>\n    Graph.Link(to: x, from: ');
+const h2 = sig.provideSignatureHelp(d2, new vscode.Position(1, 29));
 check("after 'to:' supplied, typing 'from' highlights from(0)", h2 && h2.activeParameter, 0);
 
-const d3 = doc('def main() =>\n    Link(from: a, ');
-const h3 = sig.provideSignatureHelp(d3, new vscode.Position(1, 21));
+const d3 = doc('def main() =>\n    Graph.Link(from: a, ');
+const h3 = sig.provideSignatureHelp(d3, new vscode.Position(1, 27));
 check("after from supplied, next unsupplied is to(1)", h3 && h3.activeParameter, 1);
 
 console.log("\nsupplied-key filtering in completion:");
 const tokens = T.lexDocument(d3).tokens;
-const idx = T.tokenIndexBefore(tokens, new vscode.Position(1, 21));
+const idx = T.tokenIndexBefore(tokens, new vscode.Position(1, 27));
 const call = T.enclosingCall(tokens, idx);
-check("enclosing call name", call && call.name, "Link");
+check("enclosing call name", call && call.name, "Graph:Link");
 const state = T.callArgumentState(tokens, call.openParen, idx);
 check("suppliedKeys", [...state.suppliedKeys], ["from"]);
 const items = T.completionsForCallFields(d3, call.name, state.suppliedKeys);
@@ -101,9 +101,9 @@ const h4 = sig.provideSignatureHelp(d4, new vscode.Position(5, 13));
 check("user signature", h4 && h4.signatures[0].label, "Greeting(name: String, times: Integer)");
 
 console.log("\nregression: assignment target is not treated as a parameter:");
-const d5 = doc('def main() =>\n    score := Unlink(');
-const items5 = T.completionsForCallFields(d5, "Unlink", new Set());
-check("Unlink params", items5.map(i => i.label), ["from", "to", "properties"]);
+const d5 = doc('def main() =>\n    score := Graph.Unlink(');
+const items5 = T.completionsForCallFields(d5, "Graph.Unlink", new Set());
+check("Graph.Unlink params", items5.map(i => i.label), ["from", "to", "properties"]);
 
 console.log("\nhover on a user-defined method:");
 const hov = new T.FelidaeHoverProvider();

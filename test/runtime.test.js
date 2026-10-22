@@ -64,7 +64,7 @@ const request = (adapter, command, args = {}, seq = 1) => adapter.handleMessage(
   // The debug session itself is checked end to end in debug.test.js; here: how a launch that never starts fails.
   outputs.length = 0;
   const missing = new FelidaeDebugAdapter();
-  request(missing, 'launch', { interpreterPath: '/missing', program: '/sample.fx' }, 90);
+  request(missing, 'launch', { compilerPath: '/missing', program: '/sample.fx' }, 90);
   children.at(-1).emit('error', new Error('ENOENT'));
   await tick();
   const refused = outputs.find(x => x.request_seq === 90);
@@ -73,7 +73,7 @@ const request = (adapter, command, args = {}, seq = 1) => adapter.handleMessage(
 
   outputs.length = 0;
   const failing = new FelidaeDebugAdapter();
-  request(failing, 'launch', { interpreterPath: '/felidae', program: '/sample.fx' }, 91);
+  request(failing, 'launch', { compilerPath: '/felidae', program: '/sample.fx' }, 91);
   const compiler = children.at(-1);
   compiler.stderr.emit('data', Buffer.from('error: Cannot compare Integer and String at line 3, column 5\n'));
   compiler.emit('exit', 1);

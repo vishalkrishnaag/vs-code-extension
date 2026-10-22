@@ -17,6 +17,23 @@ by compiling it to JVM classes).
   warns where `Integer` could be `int`, and the warning shows as a squiggle.
 - **Facts** need `@fact` on the class and `import org.felidae.db.tidesdb` (snippets `fact` and `importdb`); `init.fx` is gone.
 - The quick fix for a missing `.` is replaced by one for a missing conditional `end`.
+- **Debugger**, brought up to what the Java and Kotlin extensions offer: conditional and hit-count breakpoints, log
+  points, function breakpoints, caught/uncaught exception breakpoints (with the Felidae `kind`/`message` a catch
+  gets), data breakpoints on fields, restart frame, run without debugging, loaded sources (including the embedded
+  `org.felidae.*` packages, read from the compiler's own jar), and Felidae-expression evaluation in watches, hovers
+  and the debug console, with completions. Fixed: a watch or a rendered List/Map/object value could invalidate the
+  JDWP frame handles of the stopped thread, later failing a step or a variables read with "INVALID_FRAMEID";
+  stepping out of the compiler's own exact-arithmetic helpers (`Math.divideExact`, ...) could stop one line early.
+- Hover now shows a signature and a **Parameters** list, the way the Java and Kotlin extensions lay theirs out,
+  instead of folding everything into one block of text; the worked example is its own section.
+- Highlighting and hover docs catch up with the language: `Graph.Link`/`Graph.Unlink` (`Link`/`Unlink` moved under
+  `Graph` and are a compile error on their own now), `length`, `console.write`/`console.writeLine`, `Character`,
+  `key`, and the `db` static class's other members (`config`, `stats`, `stop`) are documented; `?.`/`?:` and the
+  keywords the parser still reserves but rejects with a migration error (`if`, `elif`, `return`, `where`, `extend`,
+  `lambda`) are recognized tokens again.
+- The felidae command is now `build/java/felidae.jar`, run with `java -jar`: the compiler's `cli` Gradle module was
+  folded into its root project, which no longer has an `installDist` task or a launcher script. `felidae.interpreterPath`
+  is renamed `felidae.compilerPath` to match.
 
 ## What's new in 0.4.0
 
@@ -68,7 +85,7 @@ Editing an interpreted language, where the loop is edit, try, fix:
   `dist/bin`, `PATH`), lets you browse, or clears the setting. A status bar item shows which
   felidae a file will use and its version, with a warning when none is found or when the build
   cannot run a program from stdin. Before this, a debug build was never found without a manual setting.
-- **REPL.** *Felidae: Open REPL* starts the interpreter's own `felidae --repl` in a terminal, in the
+- **REPL.** *Felidae: Open REPL* starts the interpreter's own `felidae-repl` in a terminal, in the
   file's folder (it reads `./init.fx`). *Felidae: Send to REPL* (also in the editor's right-click
   menu) sends the selection, else the `def` block under the cursor, else the current line. The REPL
   is the interpreter's normal interactive mode in a terminal you own: no session is kept, and while it
@@ -106,13 +123,6 @@ Editing an interpreted language, where the loop is edit, try, fix:
     report the database lock error. *Stop Running Cell* (or the status bar item)
     kills the current one.
   - **Debug** on a function debugs just that call (`--debug` with `--query`).
-- **Interpreter metrics on every cell.** Cells run with `--metrics-json`, and
-  the extension shows what the interpreter reports: the cell's own run time next
-  to its result (separate from the time to load the file), and in the hover and
-  *Felidae Cells* channel the work it did (clause attempts, unifications, fact
-  candidates), dispatch cache hit rate, RocksDB reads and scans, rows scanned and
-  writes. It says so plainly when a cell scanned the whole fact store (an index
-  would avoid that) or wrote to the database.
 - **Corrections and speed-ups.** Top-level `def name := v.` bindings are now
   recognised as top-level symbols (find-references and rename from inside a
   function were scoped too narrowly). Declarations are scanned once per edit
@@ -180,17 +190,17 @@ Editing an interpreted language, where the loop is edit, try, fix:
 
 `felidae` compiles a program to JVM class files beside the source and runs them; the same command provides
 `--check-json` (parse diagnostics and symbols), `--debug` (a suspended JVM for a debugger) and `--compile`.
-Build it with `./gradlew installDist` in the Felidae repository (JDK 25); the extension finds
-`build/java/cli/install/felidae/bin/felidae` (`felidae.bat` on Windows) by itself. To use another one:
+Build it with `./gradlew felidaeJar` in the Felidae repository (JDK 25); that writes `build/java/felidae.jar`, which
+the extension finds and runs with `java -jar` by itself. To use another one (a native wrapper, or a jar elsewhere):
 
 ```json
 {
-  "felidae.interpreterPath": "/opt/felidae/bin/felidae"
+  "felidae.compilerPath": "/opt/felidae/bin/felidae"
 }
 ```
 
 Use an absolute path or a path relative to the workspace folder. `FELIDAE_PATH` is used when the setting is empty.
-An optional `.vscode/felidae.json` overrides the setting for that workspace (`{"interpreterPath": "..."}`).
+An optional `.vscode/felidae.json` overrides the setting for that workspace (`{"compilerPath": "..."}`).
 In WSL, install the extension in the WSL window and configure the Linux command. Reload the window after changing it.
 
 ## Run and Debug
@@ -208,10 +218,11 @@ Use the Run/Debug buttons above `main()` or the Felidae commands. Run opens a te
 }
 ```
 
-Launch options: `program`, `interpreterPath`, `args` (for `main`), `classpath` (Java libraries, `--classpath`),
-`sourceDirs` (extra folders for imported sources) and `stopOnEntry`. A program that keeps facts needs the
-`init.fx` beside it, as for any run. The methods of a class `Box` appear as `Box.twice` in the stack; the
-embedded fact store and list helpers have no lines, so stepping never enters them.
+Launch options: `program`, `compilerPath`, `args` (for `main`), `classpath` (Java libraries, `--classpath`),
+`sourceDirs` (extra folders for imported sources) and `stopOnEntry`. A program that keeps facts opens its
+database at the first fact written (`db.location(...)` in a `static init` block names the directory; the
+default is `felidae-data` in the project folder), as for any run. The methods of a class `Box` appear as
+`Box.twice` in the stack; the embedded fact store and list helpers have no lines, so stepping never enters them.
 
 Diagnostics and document symbols use `felidae --check-json --stdin file.fx`. There is no extension-owned
 language server or parallel semantic parser.

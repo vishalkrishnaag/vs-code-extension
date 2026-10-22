@@ -1,16 +1,14 @@
-// Runs one cell as one ordinary felidae process:
-//
-//     felidae program.fx --query "expression."
+// Runs one cell as one ordinary felidae process: a generated program beside the
+// cell's document that imports it and prints the expression (see cellProgram).
 //
 // Nothing stays alive between cells and nothing is retried: a process that
 // fails reports its own error and that is shown as it is. Runs are queued so
-// that only one cell process exists at a time, because RocksDB admits a single
+// that only one cell process exists at a time, because TidesDB admits a single
 // process per database directory (a second one would fail on the lock).
 //
 // No vscode import, so it can be tested against a stand-in executable.
 
 import * as childProcess from "child_process";
-import { CellMetrics, extractMetrics } from "./metrics";
 
 export interface CellRunOptions {
   command: string;
@@ -30,8 +28,6 @@ export interface CellRunResult {
   elapsedMs: number;
   timedOut: boolean;
   cancelled: boolean;
-  // From --metrics-json, when the process printed them; stripped from stderr.
-  metrics?: CellMetrics;
 }
 
 export class CellRunner {
@@ -72,12 +68,10 @@ export class CellRunner {
         const cancelled = this.cancelRequested;
         this.current = undefined;
         this.cancelRequested = false;
-        const extracted = extractMetrics(stderr);
         resolve({
           ok: exitCode === 0 && !timedOut && !cancelled,
           stdout,
-          stderr: extracted.rest,
-          metrics: extracted.metrics,
+          stderr,
           exitCode,
           elapsedMs: Date.now() - started,
           timedOut,

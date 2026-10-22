@@ -1,12 +1,12 @@
-// The interpreter's own REPL, inside VS Code, for trying code as you edit it.
+// The felidae compiler's own REPL, inside VS Code, for trying code as you edit it.
 //
-//   Felidae: Open REPL          starts `felidae-repl` in a terminal, in the
+//   Felidae: Open REPL          starts felidae-repl in a terminal, in the
 //                               current file's folder (it saves repl.fx there, and a
 //                               program that keeps facts reads ./init.fx beside it)
 //   Felidae: Send to REPL       sends the selection, or else the def block under
 //                               the cursor, or else the current line
 //
-// The REPL is the interpreter's normal interactive mode, run in a terminal you
+// The REPL is the compiler's normal interactive mode, run in a terminal you
 // own: the extension keeps no session of its own, and when the REPL exits (or you
 // close the terminal) it is gone. The REPL asks whether to run in append mode (all
 // code is kept in repl.fx and the whole file runs each time) or not (each input
@@ -18,11 +18,11 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 import { BlockPair, cellAtLine, splitCells } from "./cells";
-import { replExecutable } from "./interpreter";
+import { compilerCommandLine, replExecutable } from "./compiler";
 
 export interface ReplHost {
-  resolveInterpreterPath(uri: vscode.Uri): string;
-  ensureInterpreterInstalled(interpreterPath: string): Promise<boolean>;
+  resolveCompilerPath(uri: vscode.Uri): string;
+  ensureCompilerInstalled(compilerPath: string): Promise<boolean>;
   blockPairs(document: vscode.TextDocument): BlockPair[];
   log(level: "info" | "warn" | "error", message: string): void;
 }
@@ -57,15 +57,16 @@ export function registerRepl(context: vscode.ExtensionContext, host: ReplHost): 
       return undefined;
     }
     const folder = path.dirname(document.uri.fsPath);
-    const interpreter = host.resolveInterpreterPath(document.uri);
-    const repl = replExecutable(interpreter, process.platform);
+    const compilerPath = host.resolveCompilerPath(document.uri);
+    const repl = replExecutable(compilerPath, process.platform);
     if (path.isAbsolute(repl) && !fs.existsSync(repl)) {
-      void vscode.window.showWarningMessage("The REPL is not built: " + repl + " is missing. Run ./gradlew installDist in the Felidae repository.");
+      void vscode.window.showWarningMessage("The REPL is not built: " + repl + " is missing. Run ./gradlew :repl:replJar in the Felidae repository.");
       return undefined;
     }
-    host.log("info", "repl: " + repl + " " + folder);
+    const { command, args } = compilerCommandLine(repl, [folder]);
+    host.log("info", "repl: " + [command, ...args].join(" "));
     // The terminal runs felidae-repl itself, not a shell, so it ends when the REPL does.
-    terminal = vscode.window.createTerminal({ name: "Felidae REPL", cwd: folder, shellPath: repl, shellArgs: [folder] });
+    terminal = vscode.window.createTerminal({ name: "Felidae REPL", cwd: folder, shellPath: command, shellArgs: args });
     terminal.show(true);
     return terminal;
   };

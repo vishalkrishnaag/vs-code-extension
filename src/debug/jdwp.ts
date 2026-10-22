@@ -227,6 +227,13 @@ export class JdwpConnection {
       socket.once("connect", () => socket.write(HANDSHAKE));
     }).then(async (connection) => {
       const c = connection as JdwpConnection;
+      // The one-shot connect-phase listener above only guards the handshake; once connected, replace it with a
+      // persistent handler so a later socket error (e.g. ECONNRESET when the debuggee's JVM dies mid-session)
+      // is never left without a listener - Node throws an unlistened 'error' event, which would otherwise risk
+      // crashing the extension host. The socket's own "close" handler already runs this same cleanup for the
+      // ordinary case; this guarantees it always runs even if "close" is ever delayed relative to "error".
+      c.socket.removeAllListeners("error");
+      c.socket.on("error", () => c.close());
       const sizes = await c.send(1, 7);
       c.sizes = { field: sizes.i32(), method: sizes.i32(), object: sizes.i32(), referenceType: sizes.i32(), frame: sizes.i32() };
       return c;

@@ -2,24 +2,25 @@
 // beside the code. Splitting lives in cells.ts and process handling in
 // cellRunner.ts; this file is only the VS Code glue.
 //
-// A cell runs as an ordinary `felidae file.fx --query "expr."` process, one at
-// a time, and ends when that process ends. There is no background process, no
-// session and no retry: whatever the interpreter reports is what is shown.
+// A cell runs as an ordinary felidae process, one at a time, from a generated
+// program beside the document that imports it and prints the cell's expression
+// (see cellProgram). There is no background process, no session and no retry:
+// whatever the process reports is what is shown.
 
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 import { BlockPair, Cell, CELL_FILE, buildCellExpression, cellAtLine, cellProgram, defaultArguments, hashText, splitCells } from "./cells";
+import { compilerCommandLine } from "./compiler";
 import { CellRunner, describeCellRun } from "./cellRunner";
-import { CellMetrics, summarizeMetrics } from "./metrics";
 
 export type CellLogLevel = "trace" | "debug" | "info" | "warn" | "error";
 
 // What the glue needs from the extension, passed in rather than imported so
 // the two modules do not depend on each other.
 export interface CellHost {
-  resolveInterpreterPath(uri: vscode.Uri): string;
-  ensureInterpreterInstalled(interpreterPath: string): Promise<boolean>;
+  resolveCompilerPath(uri: vscode.Uri): string;
+  ensureCompilerInstalled(compilerPath: string): Promise<boolean>;
   blockPairs(document: vscode.TextDocument): BlockPair[];
   log(level: CellLogLevel, message: string): void;
 }
@@ -31,8 +32,6 @@ interface CellResult {
   text: string;
   // Whole process time, including loading the file.
   elapsedMs?: number;
-  // The interpreter's own account of the run (--metrics-json).
-  metrics?: CellMetrics;
   // Hash of the cell's source when it ran; a different hash means the cell
   // was edited afterwards and the result is stale.
   sourceHash: number;
@@ -201,8 +200,8 @@ class CellSession {
 
     // The process reads the file from disk, so unsaved edits must be saved.
     if (document.isDirty) await document.save();
-    const interpreter = this.host.resolveInterpreterPath(document.uri);
-    if (!(await this.host.ensureInterpreterInstalled(interpreter))) return false;
+    const compilerPath = this.host.resolveCompilerPath(document.uri);
+    if (!(await this.host.ensureCompilerInstalled(compilerPath))) return false;
 
     const hash = this.sourceHash(document, cell);
     this.setResult(document, cell, { state: "running", expression, text: "", sourceHash: hash });
@@ -210,21 +209,20 @@ class CellSession {
     // The cell runs from a generated program beside the document that imports it (see cellProgram).
     const cellFile = path.join(path.dirname(document.uri.fsPath), CELL_FILE);
     fs.writeFileSync(cellFile, cellProgram(path.basename(document.uri.fsPath), expression));
-    const processArgs = [cellFile];
-    const commandLine = [interpreter, ...processArgs];
-    this.host.log("info", "cell: " + commandLine.join(" "));
+    const { command, args: processArgs } = compilerCommandLine(compilerPath, [cellFile]);
+    this.host.log("info", "cell: " + [command, ...processArgs].join(" "));
 
     this.setPending(1);
     let result: CellResult;
     try {
       const run = await this.runner.run({
-        command: interpreter,
+        command,
         args: processArgs,
         cwd: path.dirname(document.uri.fsPath),
         timeoutMs
       });
       const described = describeCellRun(run, timeoutMs);
-      result = { state: described.ok ? "ok" : "error", expression, text: described.text, elapsedMs: run.elapsedMs, metrics: run.metrics, sourceHash: hash };
+      result = { state: described.ok ? "ok" : "error", expression, text: described.text, elapsedMs: run.elapsedMs, sourceHash: hash };
     } finally {
       this.setPending(-1);
       removeCellFiles(cellFile);
@@ -273,8 +271,8 @@ class CellSession {
     const expression = buildCellExpression(cell, args);
 
     if (document.isDirty) await document.save();
-    const interpreter = this.host.resolveInterpreterPath(document.uri);
-    if (!(await this.host.ensureInterpreterInstalled(interpreter))) return;
+    const compilerPath = this.host.resolveCompilerPath(document.uri);
+    if (!(await this.host.ensureCompilerInstalled(compilerPath))) return;
     // felidae --debug cell_run.fx: the generated program that imports the document and runs the cell. Its
     // files go when the session ends.
     const cellFile = path.join(path.dirname(document.uri.fsPath), CELL_FILE);
@@ -285,7 +283,7 @@ class CellSession {
       request: "launch",
       name: "Debug " + cell.name,
       program: cellFile,
-      interpreterPath: interpreter,
+      compilerPath,
       stopOnEntry: false
     });
     if (!started) removeCellFiles(cellFile);
@@ -363,9 +361,7 @@ class CellSession {
   }
 
   private inlineText(result: CellResult, isStale: boolean): string {
-    // The interpreter's own run time for the cell when it reported one;
-    // otherwise the whole process time.
-    const shown = result.metrics?.executionMs ?? result.elapsedMs;
+    const shown = result.elapsedMs;
     const timing = shown !== undefined ? " · " + (shown < 10 ? shown.toFixed(1) : Math.round(shown)) + " ms" : "";
     const prefix = isStale ? "(stale) " : "";
     switch (result.state) {
@@ -384,11 +380,6 @@ class CellSession {
     markdown.appendCodeblock(result.expression, "felidae");
     if (result.state === "ok") markdown.appendMarkdown("**Output**\n").appendCodeblock(result.text || "(none)", "text");
     if (result.state === "error") markdown.appendMarkdown("**Error**\n").appendCodeblock(result.text, "text");
-    if (result.metrics) {
-      const summary = summarizeMetrics(result.metrics);
-      markdown.appendMarkdown("**Metrics**\n\n" + summary.lines.map((line) => "- " + line).join("\n") + "\n");
-      if (summary.hints.length > 0) markdown.appendMarkdown("\n" + summary.hints.map((hint) => "- ⚠ " + hint).join("\n") + "\n");
-    }
     return markdown;
   }
 
@@ -398,11 +389,7 @@ class CellSession {
     this.channel.appendLine("  > " + result.expression);
     const body = result.text.trimEnd().split("\n").map((line) => (result.state === "ok" ? "  | " : "  ! ") + line).join("\n");
     this.channel.appendLine(body || "  | (no output)");
-    if (result.metrics) {
-      const summary = summarizeMetrics(result.metrics);
-      for (const line of summary.lines) this.channel.appendLine("  · " + line);
-      for (const hint of summary.hints) this.channel.appendLine("  ⚠ " + hint);
-    } else if (result.elapsedMs !== undefined) {
+    if (result.elapsedMs !== undefined) {
       this.channel.appendLine("  (" + result.elapsedMs.toFixed(0) + " ms)");
     }
     this.channel.appendLine("");

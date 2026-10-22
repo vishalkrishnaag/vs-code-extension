@@ -10,7 +10,7 @@ const commands = (state) => menuEntries(state).map((entry) => entry.command);
 
 check("outside a Felidae file only the workspace-wide entries appear",
   commands({ inFelidaeFile: false, hasMain: false, errors: 0, warnings: 0 }),
-  ["felidae.checkWorkspace", "workbench.actions.view.problems", "felidae.selectInterpreter", "felidae.showOutput"]);
+  ["felidae.checkWorkspace", "workbench.actions.view.problems", "felidae.selectCompiler", "felidae.showOutput"]);
 check("Run and Debug appear only for a file with main",
   [true, false].map((hasMain) => commands({ inFelidaeFile: true, hasMain, errors: 0, warnings: 0 }).includes("felidae.runMain")),
   [true, false]);

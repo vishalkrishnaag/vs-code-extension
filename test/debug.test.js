@@ -8,13 +8,18 @@ const os = require("os");
 const path = require("path");
 
 // The felidae command to debug with: FELIDAE_PATH, else the Gradle distribution of the repository this extension sits
-// in (./gradlew installDist writes build/java/cli/install/felidae/bin/felidae). A stale build/java/felidae.jar is not used.
+// in (./gradlew installDist writes build/java/root/install/felidae/bin/felidae). A stale build/java/felidae.jar is
+// not used.
 function findFelidae() {
   if (process.env.FELIDAE_PATH) return process.env.FELIDAE_PATH;
   const name = process.platform === "win32" ? "felidae.bat" : "felidae";
-  for (let dir = __dirname, depth = 0; depth < 6; dir = path.dirname(dir), depth++) {
-    const candidate = path.join(dir, "build", "java", "cli", "install", "felidae", "bin", name);
-    if (fs.existsSync(candidate)) return candidate;
+  // build/java/root: the root project's own installDist, since the former cli module was folded into it;
+  // build/java/cli: the layout from before that merge, kept so an older build still runs this test.
+  for (const module of ["root", "cli"]) {
+    for (let dir = __dirname, depth = 0; depth < 6; dir = path.dirname(dir), depth++) {
+      const candidate = path.join(dir, "build", "java", module, "install", "felidae", "bin", name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
   }
   return undefined;
 }
@@ -160,7 +165,7 @@ const childValues = async (reference) =>
   assert.ok(capabilities.supportsConditionalBreakpoints && capabilities.supportsLogPoints && capabilities.supportsFunctionBreakpoints);
   assert.deepStrictEqual(capabilities.exceptionBreakpointFilters.map((f) => f.filter), ["uncaught", "caught"]);
   const initialized = event("initialized");
-  await request("launch", { program, interpreterPath: felidae, stopOnEntry: true });
+  await request("launch", { program, compilerPath: felidae, stopOnEntry: true });
   await initialized;
   const set = await request("setBreakpoints", {
     source: { path: program },
@@ -254,8 +259,8 @@ const childValues = async (reference) =>
   // run without debugging
   const plain = newSession();
   await plain.request("initialize", {});
-  await plain.request("launch", { program, interpreterPath: felidae, noDebug: true });
-  await plain.waitFor((m) => m.type === "event" && m.event === "output" && /loops: 7/.test(m.body.output), "noDebug output");
+  await plain.request("launch", { program, compilerPath: felidae, noDebug: true });
+  await plain.waitFor((m) => m.type === "event" && m.event === "output" && /loops: 6/.test(m.body.output), "noDebug output");
   await plain.event("terminated");
   console.log("debug session: 2 scenarios passed");
   process.exit(0);

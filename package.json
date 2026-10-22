@@ -1,7 +1,7 @@
 {
   "name": "felidae-vscode",
   "displayName": "Felidae",
-  "description": "Felidae .fx support with interpreter debugging, diagnostics, and language services.",
+  "description": "Felidae .fx support with JVM debugging, diagnostics, and language services.",
   "version": "0.5.0",
   "publisher": "local",
   "repository": {
@@ -20,9 +20,7 @@
   ],
   "activationEvents": [
     "onLanguage:felidae",
-    "workspaceContains:**/*.fx",
-    "onDebugInitialConfigurations:felidae",
-    "onDebugResolve:felidae"
+    "workspaceContains:**/*.fx"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -189,7 +187,7 @@
     "problemMatchers": [
       {
         "name": "felidae",
-        "label": "Felidae interpreter errors",
+        "label": "Felidae compiler errors",
         "owner": "felidae",
         "source": "felidae",
         "fileLocation": [
@@ -252,86 +250,105 @@
     "commands": [
       {
         "command": "felidae.showOutput",
-        "title": "Felidae: Show Output"
+        "title": "Show Output",
+        "category": "Felidae"
       },
       {
-        "command": "felidae.selectInterpreter",
-        "title": "Felidae: Select Interpreter"
+        "command": "felidae.selectCompiler",
+        "title": "Select Compiler",
+        "category": "Felidae"
       },
       {
         "command": "felidae.openRepl",
-        "title": "Felidae: Open REPL"
+        "title": "Open REPL",
+        "category": "Felidae"
       },
       {
         "command": "felidae.sendToRepl",
-        "title": "Felidae: Send to REPL"
+        "title": "Send to REPL",
+        "category": "Felidae"
       },
       {
         "command": "felidae.runCell",
-        "title": "Felidae: Run Cell",
+        "title": "Run Cell",
+        "category": "Felidae",
         "icon": "$(play)"
       },
       {
         "command": "felidae.runCellAndAdvance",
-        "title": "Felidae: Run Cell and Advance"
+        "title": "Run Cell and Advance",
+        "category": "Felidae"
       },
       {
         "command": "felidae.runCellsBelow",
-        "title": "Felidae: Run Cell and Cells Below"
+        "title": "Run Cell and Cells Below",
+        "category": "Felidae"
       },
       {
         "command": "felidae.runAllCells",
-        "title": "Felidae: Run All Cells",
+        "title": "Run All Cells",
+        "category": "Felidae",
         "icon": "$(run-all)"
       },
       {
         "command": "felidae.debugCell",
-        "title": "Felidae: Debug Cell",
+        "title": "Debug Cell",
+        "category": "Felidae",
         "icon": "$(debug-alt)"
       },
       {
         "command": "felidae.stopCell",
-        "title": "Felidae: Stop Running Cell"
+        "title": "Stop Running Cell",
+        "category": "Felidae"
       },
       {
         "command": "felidae.clearCellResults",
-        "title": "Felidae: Clear Cell Results"
+        "title": "Clear Cell Results",
+        "category": "Felidae"
       },
       {
         "command": "felidae.runMain",
-        "title": "Felidae: Run",
+        "title": "Run",
+        "category": "Felidae",
         "icon": "$(play)"
       },
       {
         "command": "felidae.debugMain",
-        "title": "Felidae: Debug",
+        "title": "Debug",
+        "category": "Felidae",
         "icon": "$(debug-alt)"
       },
       {
         "command": "felidae.runQuery",
-        "title": "Felidae: Run Query",
+        "title": "Run Query",
+        "category": "Felidae",
         "icon": "$(terminal)"
       },
       {
         "command": "felidae.formatDocument",
-        "title": "Felidae: Format Document",
+        "title": "Format Document",
+        "category": "Felidae",
         "icon": "$(list-flat)"
       },
       {
         "command": "felidae.checkWorkspace",
-        "title": "Felidae: Check All Felidae Files"
+        "title": "Check All Felidae Files",
+        "category": "Felidae"
       },
       {
         "command": "felidae.clearProblems",
-        "title": "Felidae: Clear Problems"
+        "title": "Clear Problems",
+        "category": "Felidae"
       },
       {
         "command": "felidae.menu",
-        "title": "Felidae: Menu"
+        "title": "Menu",
+        "category": "Felidae"
       },
       {
         "command": "felidae.checkFile",
-        "title": "Felidae: Check This File"
+        "title": "Check This File",
+        "category": "Felidae"
       }
     ],
     "debuggers": [
@@ -352,9 +369,9 @@
                 "description": "Felidae source file to debug (the entry file with main()).",
                 "default": "${file}"
               },
-              "interpreterPath": {
+              "compilerPath": {
                 "type": "string",
-                "description": "The felidae command (build/java/cli/install/felidae/bin/felidae from ./gradlew installDist), or felidae.jar. Empty: found like Run does.",
+                "markdownDescription": "Path to the felidae compiler executable, or a `felidae.jar` built by Gradle (`./gradlew felidaeJar`). Relative paths are resolved from the workspace folder. Empty: resolved the same way as Run, via auto-discovery of `build/java/felidae.jar`.",
                 "default": ""
               },
               "args": {
@@ -477,10 +494,10 @@
           "default": true,
           "description": "Show a faint label after the `end` of the block under the cursor, naming the def, class, for, while, switch or try block it closes."
         },
-        "felidae.interpreterPath": {
+        "felidae.compilerPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the felidae interpreter (reads source.fx, parses it, and executes the AST directly - no separate compiler or VM). When empty, staged release locations under dist/bin are searched. Relative paths are resolved from the workspace folder."
+          "markdownDescription": "Path to the felidae compiler executable, or a `felidae.jar` built by Gradle (`./gradlew felidaeJar`). felidae compiles `source.fx` to JVM bytecode and runs it; this setting overrides auto-discovery, which looks for `build/java/felidae.jar` under the workspace. Relative paths are resolved from the workspace folder."
         },
         "felidae.defaultQuery": {
           "type": "string",
@@ -500,7 +517,7 @@
             "Never check automatically; use Check All Felidae Files."
           ],
           "default": "onType",
-          "description": "When the interpreter's parser checks open Felidae files."
+          "description": "When the compiler's parser checks open Felidae files."
         }
       }
     },
@@ -567,17 +584,17 @@
       {
         "id": "felidae.start",
         "title": "Get started with Felidae",
-        "description": "Pick an interpreter, run code a def at a time, and catch problems early.",
+        "description": "Pick a compiler, run code a def at a time, and catch problems early.",
         "steps": [
           {
-            "id": "interpreter",
-            "title": "Pick the interpreter",
-            "description": "Choose which felidae executable runs your code.\n[Select Interpreter](command:felidae.selectInterpreter)",
+            "id": "felidae-compiler",
+            "title": "Pick the compiler",
+            "description": "Choose which felidae executable runs your code.\n[Select Compiler](command:felidae.selectCompiler)",
             "media": {
-              "markdown": "walkthrough/interpreter.md"
+              "markdown": "walkthrough/felidae-compiler.md"
             },
             "completionEvents": [
-              "onCommand:felidae.selectInterpreter"
+              "onCommand:felidae.selectCompiler"
             ]
           },
           {
@@ -595,7 +612,7 @@
           {
             "id": "repl",
             "title": "Try things in the REPL",
-            "description": "Open the interpreter's own REPL and send code to it.\n[Open REPL](command:felidae.openRepl)",
+            "description": "Open the compiler's own REPL and send code to it.\n[Open REPL](command:felidae.openRepl)",
             "media": {
               "markdown": "walkthrough/repl.md"
             },
