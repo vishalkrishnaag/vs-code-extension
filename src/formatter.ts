@@ -122,7 +122,7 @@ function leadingWidth(rawLine: string): number {
 // frame rather than opening another one.
 function opensBlock(masked: string): boolean {
   return /^\s*(?:private\s+)?(?:static\s+)?(?:class|interface)\s+[A-Za-z_][A-Za-z0-9_.]*(?:\s+(?:extends?|implements)\b.*)?\s*$/.test(masked) ||
-    /^\s*(?:def|define)\s+[A-Za-z_][A-Za-z0-9_.]*(?:<[^>]*>)?\s*\([^)]*\)(?:\s*:\s*[^=]+?)?\s*=>\s*$/.test(masked) ||
+    /^\s*(?:async\s+)?(?:def|define)\s+[A-Za-z_][A-Za-z0-9_.]*(?:<[^>]*>)?\s*\([^)]*\)(?:\s*:\s*[^=]+?)?\s*=>\s*$/.test(masked) ||
     /^\s*(?:for\b.*\bthen|while\b.*\bthen|switch\b.*|try)\s*$/.test(masked) ||
     /^\s*(?!(?:else|catch|case|default)\b)\S.*\bthen\s*$/.test(masked);
 }

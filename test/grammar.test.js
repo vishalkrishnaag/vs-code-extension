@@ -59,5 +59,7 @@ check("abstract is a class modifier", has("abstract class Shape", "storage.modif
 check("?. and ?: are operators", [has("a?.b", "keyword.operator.rule.Felidae"), has("a ?: b", "keyword.operator.rule.Felidae")], [true, true]);
 check("a def with a result type is a function declaration", has("def area(): double =>", "keyword.declaration.function.felidae"), true);
 check("the old relational words are not keywords", has("where", "keyword.control.felidae"), false);
+check("async and await are keywords", [has("async def", "keyword.control.felidae"), has("await f()", "keyword.control.felidae")], [true, true]);
+check("an async def with a result type is a function declaration", has("async def area(): double =>", "keyword.declaration.function.felidae"), true);
 
 console.log(`${pass} passed, 0 failed`);

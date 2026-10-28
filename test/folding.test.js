@@ -142,6 +142,26 @@ console.log("explicit end blocks");
 }
 
 // --------------------------------------------------------------------------
+console.log("async functions");
+{
+  // `async def ... =>` opens a block that ends with `end`, like `def`, so the pairs stay matched around it.
+  const text = [
+    "static class App",
+    "    async def one() =>",
+    "        1",
+    "    end",
+    "",
+    "    async def main() =>",
+    "        await one()",
+    "    end",
+    "end"
+  ].join("\n");
+  const found = regions(text, "Region");
+  check(sameRanges(found, [[1, 9], [2, 4], [6, 8]]),
+    "folds an async def like a def and keeps the surrounding class paired", JSON.stringify(found));
+}
+
+// --------------------------------------------------------------------------
 console.log("try/catch blocks");
 {
   const text = [

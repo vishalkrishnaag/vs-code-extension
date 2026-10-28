@@ -92,7 +92,7 @@ const semanticLegend = new vscode.SemanticTokensLegend(
 const FELIDAE_KEYWORDS = new Set([
   "def", "define", "import", "package", "private", "static", "abstract", "class", "interface", "implements", "extends", "index", "key", "else", "then", "end",
   "for", "in", "while", "switch", "case", "default", "break", "continue",
-  "try", "catch", "new", "this", "super", "and", "or", "not", "nil", "true", "false"
+  "try", "catch", "new", "this", "super", "and", "or", "not", "nil", "true", "false", "async", "await"
 ]);
 
 const FELIDAE_BUILTIN_TYPE_NAMES = new Set([
@@ -533,7 +533,7 @@ function definitionPattern(name: string): RegExp {
   // followed by `(` either, so `def` is optional here without making this
   // match a fact by that name too eagerly). Only `class Name` itself has no
   // `def` prefix to allow for.
-  return new RegExp(`^(?:(?:(?:def|define)\\s+)?${qualifiedName}(?:\\s+extend\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*\\(|class\\s+${qualifiedName}\\b)`);
+  return new RegExp(`^(?:(?:(?:async\\s+)?(?:def|define)\\s+)?${qualifiedName}(?:\\s+extend\\s+[A-Za-z_][A-Za-z0-9_]*)?\\s*\\(|class\\s+${qualifiedName}\\b)`);
 }
 
 // A hover's body, laid out the way the Java and Kotlin extensions lay out theirs: a signature code block, the
@@ -641,7 +641,7 @@ interface EndBlockPair {
 
 function endBlockPairs(lines: readonly string[]): EndBlockPair[] {
   const defOpensBlock = (lineIndex: number): boolean => {
-    if (!/^\s*def\s+[A-Za-z_][A-Za-z0-9_:.]*\s*\(/.test(lines[lineIndex])) return false;
+    if (!/^\s*(?:async\s+)?def\s+[A-Za-z_][A-Za-z0-9_:.]*\s*\(/.test(lines[lineIndex])) return false;
     let header = "";
     for (let index = lineIndex; index < lines.length; index++) {
       header += ` ${lines[index].replace(/#.*$/, "")}`;
@@ -655,7 +655,7 @@ function endBlockPairs(lines: readonly string[]): EndBlockPair[] {
   const pairs: EndBlockPair[] = [];
   for (let line = 0; line < lines.length; line++) {
     const text = lines[line];
-    const opener = /^\s*(?:private\s+)?(?:static\s+)?(class|interface|define|def|for|while|switch|try)\b/.exec(text);
+    const opener = /^\s*(?:private\s+)?(?:static\s+)?(?:async\s+)?(class|interface|define|def|for|while|switch|try)\b/.exec(text);
     const opens = !!opener && (!isDefWord(opener[1]) || defOpensBlock(line));
     if (opener && opens) {
       stack.push({ line, start: opener.index + opener[0].lastIndexOf(opener[1]), length: opener[1].length });
@@ -786,7 +786,7 @@ class FelidaeFoldingRangeProvider implements vscode.FoldingRangeProvider {
     // requires one now, so without allowing it here a run of `def`-prefixed
     // methods collapsed into one region the same way.
     const startsTopLevel = (line: string) =>
-      /^(?:(?:def|define)[ \t]+)?[A-Za-z_][A-Za-z0-9_:.]*(?:[ \t]+extend[ \t]+[A-Za-z_][A-Za-z0-9_]*)?[ \t]*\(/.test(line) ||
+      /^(?:(?:async[ \t]+)?(?:def|define)[ \t]+)?[A-Za-z_][A-Za-z0-9_:.]*(?:[ \t]+extend[ \t]+[A-Za-z_][A-Za-z0-9_]*)?[ \t]*\(/.test(line) ||
       /^(?:import|package|class|static|private|new)\b/.test(line);
     // Explicit `end` is authoritative: fold precisely from its opening
     // declaration/class line to the matching closer, including nested blocks.
@@ -1433,7 +1433,7 @@ function isLibraryNamespace(name: string): boolean {
 // for `def`-prefixed source the moment that keyword became mandatory.
 // Non-capturing, so match[1..4] keep meaning name/extends/args/terminator.
 const DECLARATION_PATTERN =
-  /^(?:(?:def|define)[ \t]+)?([A-Za-z_][A-Za-z0-9_:.]*)(?:<[^<>(]*(?:<[^<>]*>[^<>(]*)*>)?(?:[ \t]+extend[ \t]+([A-Za-z_][A-Za-z0-9_]*))?[ \t]*\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)(?:[ \t]*:[ \t]*[A-Za-z_][\w.<>, ]*)?[ \t]*(=>|\.|$)/gm;
+  /^(?:(?:async[ \t]+)?(?:def|define)[ \t]+)?([A-Za-z_][A-Za-z0-9_:.]*)(?:<[^<>(]*(?:<[^<>]*>[^<>(]*)*>)?(?:[ \t]+extend[ \t]+([A-Za-z_][A-Za-z0-9_]*))?[ \t]*\(((?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)(?:[ \t]*:[ \t]*[A-Za-z_][\w.<>, ]*)?[ \t]*(=>|\.|$)/gm;
 // A top-level binding: `def name := v.` or `def name: Type := v.` (an indented
 // def is a local or a class field, not a top-level symbol).
 const GLOBAL_BINDING_PATTERN = /^def[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?::[^=\n]*)?:=/gm;
@@ -2028,7 +2028,7 @@ class FelidaeDocumentHighlightProvider implements vscode.DocumentHighlightProvid
   ): vscode.ProviderResult<vscode.DocumentHighlight[]> {
     const found = identifierAt(document, position);
     if (!found) return [];
-    if (["class", "def", "define", "for", "while", "switch", "try", "end"].includes(found.name)) {
+    if (["class", "async", "def", "define", "for", "while", "switch", "try", "end"].includes(found.name)) {
       const pair = cachedEndBlockPairs(document).pairs.find((candidate) =>
         (candidate.openerLine === position.line && found.name !== "end") ||
         (candidate.endLine === position.line && found.name === "end")

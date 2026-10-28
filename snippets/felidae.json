@@ -47,6 +47,25 @@
     ],
     "description": "Declare a function called with positional arguments, Java style: name(1, 2)"
   },
+  "Async Function": {
+    "prefix": "asyncdef",
+    "body": [
+      "async def ${1:name}(${2:value}: ${3:Integer}) =>",
+      "    ${4:expression}",
+      "end"
+    ],
+    "description": "Declare a function that runs on its own virtual thread; call it with await"
+  },
+  "Await": {
+    "prefix": "await",
+    "body": "await ${1:name}(${2:value})",
+    "description": "Run an async function on its own virtual thread and wait for its result"
+  },
+  "Await All": {
+    "prefix": "awaitall",
+    "body": "await [${1:first}(${2:value}), ${3:second}(${4:value})]",
+    "description": "Start several async calls together and wait for all of them (a List of the results)"
+  },
   "Main": {
     "prefix": "main",
     "body": [

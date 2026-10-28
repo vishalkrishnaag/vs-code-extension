@@ -39,9 +39,9 @@ export interface BlockPair {
 // A ':' or '.' belongs to a name only when an identifier follows it, so
 // "def label: string" names `label`, not `label:`.
 const NAME = "[A-Za-z_][A-Za-z0-9_]*(?:[:.][A-Za-z_][A-Za-z0-9_]*)*";
-const DEF_HEAD = new RegExp("^(?:def|define)\\s+(" + NAME + ")");
+const DEF_HEAD = new RegExp("^(?:async\\s+)?(?:def|define)\\s+(" + NAME + ")");
 const CLASS_HEAD = /^(?:private\s+)?(static\s+)?(?:class|interface)\s+([A-Za-z_][A-Za-z0-9_.]*)/;
-const MEMBER_HEAD = new RegExp("^    (?:def|define)\\s+(" + NAME + ")");
+const MEMBER_HEAD = new RegExp("^    (?:async\\s+)?(?:def|define)\\s+(" + NAME + ")");
 
 // A line that is only a comment: `// ...`, or part of a `/* ... */` / `/** ... */` block written one line each.
 function isCommentLine(line: string): boolean {

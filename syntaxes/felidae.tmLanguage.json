@@ -157,7 +157,7 @@
         },
         {
           "name": "keyword.control.felidae",
-          "match": "\\b(?:def|extends|implements|else|then|for|in|while|switch|case|default|break|continue|try|catch|new|this|super)\\b"
+          "match": "\\b(?:def|async|await|extends|implements|else|then|for|in|while|switch|case|default|break|continue|try|catch|new|this|super)\\b"
         },
         {
           "comment": "Reserved by the lexer but rejected by the parser with an explicit migration error (removed block-if, statement-level where/return, fact 'extend', the not-yet-implemented lambda): still real tokens, so still a keyword, not a plain identifier.",
@@ -262,11 +262,11 @@
         },
         {
           "name": "support.class.library.felidae",
-          "match": "\\b(?:db|system|console)(?=\\s*[:.])"
+          "match": "\\b(?:db|system)(?=\\s*[:.])"
         },
         {
           "name": "support.function.library.felidae",
-          "match": "(?<=\\b(?:db|system|console)[.:])[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+          "match": "(?<=\\b(?:db|system)[.:])[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
         }
       ]
     },
