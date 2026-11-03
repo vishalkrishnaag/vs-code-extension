@@ -39,7 +39,7 @@ check("def before a typed field is a variable declaration", has("def id: String.
 check("static class is a modifier", has("static class Tally", "storage.modifier.static.felidae"), true);
 check("private class is a modifier", has("private class Secret", "storage.modifier.static.felidae"), true);
 check("primitive types are types", has("def count: int", "storage.type.primitive.felidae"), true);
-check("the fact annotation is an annotation", has("@fact", "storage.type.annotation.felidae"), true);
+check("the database annotation is an annotation", has("@tidesdb", "storage.type.annotation.felidae"), true);
 check("import is a keyword", has("import java.util.ArrayList", "keyword.control.import.Felidae"), true);
 check("package is a keyword", has("package com.acme", "keyword.control.import.Felidae"), true);
 check("an imported Java name is scoped", has("import java.util.*", "entity.name.type.import.felidae"), true);

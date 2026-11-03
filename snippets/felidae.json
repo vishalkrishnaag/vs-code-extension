@@ -260,10 +260,17 @@
     ],
     "description": "Return the type name of a value"
   },
+  "Visualize graph": {
+    "prefix": "visualize",
+    "body": [
+      "${1:Person}().where(${2:id}: ${3:\"x\"}).visualize(depth: ${4:1})"
+    ],
+    "description": "Show a selection of facts and the facts their links reach in a window (needs import org.felidae.visualize)"
+  },
   "Fact class": {
     "prefix": "fact",
     "body": [
-      "@fact",
+      "@tidesdb",
       "class ${1:Entity}",
       "    key(${2:id})",
       "    def ${2:id}: ${3:String}",
@@ -289,6 +296,24 @@
       "end"
     ],
     "description": "Declare an interface: default methods, static methods and constants"
+  },
+  "Record": {
+    "prefix": "record",
+    "body": [
+      "record ${1:Point}",
+      "    def ${2:x}: ${3:int}",
+      "    def ${4:y}: ${5:int}",
+      "end"
+    ],
+    "description": "Declare a record: plain read-only data, compiled to a JVM record"
+  },
+  "Sealed interface": {
+    "prefix": "sealed",
+    "body": [
+      "sealed interface ${1:Shape} permits ${2:Circle}, ${3:Square}",
+      "end"
+    ],
+    "description": "Declare a sealed interface that lists the types allowed to implement it"
   },
   "Implementing class": {
     "prefix": "implements",

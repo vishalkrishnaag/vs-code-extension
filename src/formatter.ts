@@ -121,7 +121,7 @@ function leadingWidth(rawLine: string): number {
 // conditional whose branches start on the next line (`x > 0 then`). else/catch/case/default continue the surrounding
 // frame rather than opening another one.
 function opensBlock(masked: string): boolean {
-  return /^\s*(?:private\s+)?(?:static\s+)?(?:class|interface)\s+[A-Za-z_][A-Za-z0-9_.]*(?:\s+(?:extends?|implements)\b.*)?\s*$/.test(masked) ||
+  return /^\s*(?:private\s+)?(?:static\s+)?(?:abstract\s+)?(?:sealed\s+)?(?:class|interface|record)\s+[A-Za-z_][A-Za-z0-9_.]*(?:\s+(?:extends?|implements|permits)\b.*)?\s*$/.test(masked) ||
     /^\s*(?:async\s+)?(?:def|define)\s+[A-Za-z_][A-Za-z0-9_.]*(?:<[^>]*>)?\s*\([^)]*\)(?:\s*:\s*[^=]+?)?\s*=>\s*$/.test(masked) ||
     /^\s*(?:for\b.*\bthen|while\b.*\bthen|switch\b.*|try)\s*$/.test(masked) ||
     /^\s*(?!(?:else|catch|case|default)\b)\S.*\bthen\s*$/.test(masked);

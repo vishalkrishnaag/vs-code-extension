@@ -125,7 +125,7 @@
         },
         {
           "name": "storage.modifier.static.felidae",
-          "match": "\\b(?:private|static|abstract)\\b(?=\\s+(?:static\\s+|abstract\\s+)?(?:class|interface)\\b)"
+          "match": "\\b(?:private|static|abstract|sealed)\\b(?=\\s+(?:static\\s+|abstract\\s+|sealed\\s+)?(?:class|interface|record)\\b)"
         },
         {
           "name": "storage.modifier.static.felidae",
@@ -157,7 +157,7 @@
         },
         {
           "name": "keyword.control.felidae",
-          "match": "\\b(?:def|async|await|extends|implements|else|then|for|in|while|switch|case|default|break|continue|try|catch|new|this|super)\\b"
+          "match": "\\b(?:def|async|await|extends|implements|permits|else|then|for|in|while|switch|case|default|break|continue|try|catch|new|this|super)\\b"
         },
         {
           "comment": "Reserved by the lexer but rejected by the parser with an explicit migration error (removed block-if, statement-level where/return, fact 'extend', the not-yet-implemented lambda): still real tokens, so still a keyword, not a plain identifier.",
@@ -230,7 +230,7 @@
         },
         {
           "name": "entity.name.type.class.felidae",
-          "match": "(?<=\\b(?:class|interface|extends|implements|new)\\s)\\s*[A-Za-z_][A-Za-z0-9_.]*"
+          "match": "(?<=\\b(?:class|interface|record|extends|implements|permits|new)\\s)\\s*[A-Za-z_][A-Za-z0-9_.]*"
         },
         {
           "name": "entity.name.type.felidae",

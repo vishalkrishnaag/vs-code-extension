@@ -15,7 +15,7 @@ by compiling it to JVM classes).
 - **Debugging** finds the sources of classes in packages (`com.acme.app`).
 - **Primitive types** `int`, `long`, `float`, `double`, `boolean`, `char`, `byte`, `short` are types (highlighting, snippets); the compiler
   warns where `Integer` could be `int`, and the warning shows as a squiggle.
-- **Facts** need `@fact` on the class and `import org.felidae.db.tidesdb` (snippets `fact` and `importdb`); `init.fx` is gone.
+- **Facts** need `@tidesdb` on the class and `import org.felidae.db.tidesdb` (snippets `fact` and `importdb`); `init.fx` is gone.
 - The quick fix for a missing `.` is replaced by one for a missing conditional `end`.
 - **Debugger**, brought up to what the Java and Kotlin extensions offer: conditional and hit-count breakpoints, log
   points, function breakpoints, caught/uncaught exception breakpoints (with the Felidae `kind`/`message` a catch

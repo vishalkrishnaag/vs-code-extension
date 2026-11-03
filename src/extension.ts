@@ -90,7 +90,7 @@ const semanticLegend = new vscode.SemanticTokensLegend(
 
 // Language keywords: never variables, never declaration names.
 const FELIDAE_KEYWORDS = new Set([
-  "def", "define", "import", "package", "private", "static", "abstract", "class", "interface", "implements", "extends", "index", "key", "else", "then", "end",
+  "def", "define", "import", "package", "private", "static", "abstract", "class", "interface", "record", "sealed", "permits", "implements", "extends", "index", "key", "else", "then", "end",
   "for", "in", "while", "switch", "case", "default", "break", "continue",
   "try", "catch", "new", "this", "super", "and", "or", "not", "nil", "true", "false", "async", "await"
 ]);
@@ -655,7 +655,7 @@ function endBlockPairs(lines: readonly string[]): EndBlockPair[] {
   const pairs: EndBlockPair[] = [];
   for (let line = 0; line < lines.length; line++) {
     const text = lines[line];
-    const opener = /^\s*(?:private\s+)?(?:static\s+)?(?:async\s+)?(class|interface|define|def|for|while|switch|try)\b/.exec(text);
+    const opener = /^\s*(?:private\s+)?(?:static\s+)?(?:async\s+)?(?:sealed\s+)?(class|interface|record|define|def|for|while|switch|try)\b/.exec(text);
     const opens = !!opener && (!isDefWord(opener[1]) || defOpensBlock(line));
     if (opener && opens) {
       stack.push({ line, start: opener.index + opener[0].lastIndexOf(opener[1]), length: opener[1].length });
@@ -1055,7 +1055,7 @@ class FelidaeTaskProvider implements vscode.TaskProvider {
 // with its parent's "end".
 function isBlockOpenerLine(text: string): boolean {
   const code = text.replace(/#.*$/, "");
-  return /^\s*(?:class\b|interface\b|switch\b|try\s*$)/.test(code) ||
+  return /^\s*(?:(?:sealed\s+)?class\b|(?:sealed\s+)?interface\b|record\s+[A-Za-z_]|switch\b|try\s*$)/.test(code) ||
     /^\s*(?:for|while)\b.*\bthen\s*$/.test(code) ||
     /^\s*def\s+[A-Za-z_][A-Za-z0-9_:.]*\s*\([^)]*\)\s*=>\s*(?:\(\s*\))?\s*$/.test(code);
 }
