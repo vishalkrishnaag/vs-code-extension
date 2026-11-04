@@ -92,12 +92,12 @@ const semanticLegend = new vscode.SemanticTokensLegend(
 const FELIDAE_KEYWORDS = new Set([
   "def", "define", "import", "package", "private", "static", "abstract", "class", "interface", "record", "sealed", "permits", "implements", "extends", "index", "key", "else", "then", "end",
   "for", "in", "while", "switch", "case", "default", "break", "continue",
-  "try", "catch", "new", "this", "super", "and", "or", "not", "nil", "true", "false", "async", "await"
+  "try", "catch", "new", "this", "super", "and", "or", "not", "None", "true", "false", "async", "await", "enum", "fn"
 ]);
 
 const FELIDAE_BUILTIN_TYPE_NAMES = new Set([
   "int", "long", "float", "double", "boolean", "char", "byte", "short",
-  "Integer", "Long", "Float", "Double", "Character", "Byte", "Short", "String", "Boolean", "Atom", "Any", "Object", "Nothing",
+  "Integer", "Long", "Float", "Double", "Character", "Byte", "Short", "String", "Boolean", "Atom", "Any", "Object", "Nothing", "Empty",
   "List", "Map", "Optional", "Pair"
 ]);
 
@@ -113,22 +113,6 @@ function loadBuiltinDocs(): Record<string, BuiltinDoc> {
 
 const builtinDocs: Record<string, BuiltinDoc> = loadBuiltinDocs();
 
-
-function builtinSourceName(name: string): string {
-  const legacyColonBuiltins = new Set([
-    "math:add", "math:sub", "math:mul", "math:div", "math:mod",
-    "str:len", "str:contains", "str:concat", "str:lower", "str:upper",
-    "str:trim", "str:split", "str:replace", "str:startsWith", "str:endsWith",
-    "array:get", "array:len", "array:push",
-    "fn:array", "fn:pair", "fn:tuple",
-    "pair:first", "pair:second",
-    "json:parse", "json:get", "json:has", "json:keys", "json:set", "json:remove", "json:toText",
-    "csv:parse", "csv:toFacts", "csv:toText", "csv:toFelidaeFacts",
-    "csv:addRow", "csv:findRows", "csv:updateRows", "csv:deleteRows",
-    "file:readFile", "file:readLines", "file:readLine", "file:writeFile", "file:writeLines", "file:appendFile", "file:exists", "file:deleteFile"
-  ]);
-  return legacyColonBuiltins.has(name) ? name : name.replace(/:/g, ".");
-}
 
 function quotePosixShell(value: string): string {
   return `'${String(value).replace(/'/g, `'"'"'`)}'`;
@@ -341,7 +325,6 @@ function collectVariableNames(tokens: Token[], start: number, end: number): Set<
     const nextNext = tokens[i + 2];
     const prevPrev = tokens[i - 2];
 
-    if ((next?.kind === "dot" || next?.kind === "colon") && isLibraryNamespace(token.text)) continue;
     if (next?.kind === "arrow") continue;
     if (
       /^[A-Z]/.test(token.text) &&
@@ -591,9 +574,6 @@ class FelidaeDefinitionProvider implements vscode.DefinitionProvider {
     // definition locations.
     const name = getCallNameAtPosition(document, position);
     if (!name) return undefined;
-    const builtin = await builtinDefinition(document, name);
-    if (builtin) return builtin;
-
     const pattern = definitionPattern(name);
     const locations: vscode.Location[] = [];
     const files = await vscode.workspace.findFiles("**/*.fx", FX_EXCLUDE, 200);
@@ -610,25 +590,6 @@ class FelidaeDefinitionProvider implements vscode.DefinitionProvider {
 
     return locations.length ? locations : undefined;
   }
-}
-
-async function builtinDefinition(document: vscode.TextDocument, name: string): Promise<vscode.Location | undefined> {
-  const moduleName = name.split(":")[0]?.split(".")[0];
-  if (!moduleName) return undefined;
-  const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-  if (!workspaceFolder) return undefined;
-  const target = vscode.Uri.file(path.join(workspaceFolder.uri.fsPath, "core", `${moduleName}.fx`));
-  if (!fs.existsSync(target.fsPath)) return undefined;
-  const sourceName = builtinSourceName(name);
-  const declaration = definitionPattern(sourceName);
-  const targetDocument = await vscode.workspace.openTextDocument(target);
-  for (let line = 0; line < targetDocument.lineCount; line++) {
-    const text = targetDocument.lineAt(line).text;
-    if (declaration.test(text)) {
-      return new vscode.Location(target, new vscode.Position(line, text.search(/\S/)));
-    }
-  }
-  return new vscode.Location(target, new vscode.Position(0, 0));
 }
 
 interface EndBlockPair {
@@ -1396,16 +1357,6 @@ function normalizeGraphName(name: string): string {
   return name.replace(/\./g, ":");
 }
 
-const FELIDAE_LIBRARY_NAMES =
-  "array|comparison|console|csv|db|exception|fact|fact_analysis|file|flibrary|fn|group|gtk|http|json|list|logic|math|ml|package|pair|plot|prelude|process|qt|set|smoke|str|system|thread|wordnet";
-
-function isLibraryName(name: string): boolean {
-  return new RegExp(`^(${FELIDAE_LIBRARY_NAMES})(:|$)`).test(name);
-}
-
-function isLibraryNamespace(name: string): boolean {
-  return new RegExp(`^(${FELIDAE_LIBRARY_NAMES})$`).test(name);
-}
 
 // Declaration head: `Name(args)`, `Name extend Parent(args)`, optionally
 // followed by `=>` (method) or `.` (dot-terminated fact).
@@ -1675,11 +1626,8 @@ function completionsForScope(
   for (const name of collectImportedModuleNames(document)) {
     add(name, vscode.CompletionItemKind.Module, "imported module");
   }
-  for (const name of FELIDAE_LIBRARY_NAMES.split("|")) {
-    add(name, vscode.CompletionItemKind.Module, "core library");
-  }
   for (const key of Object.keys(builtinDocs)) {
-    if (key.includes(":") || key === "lambda") continue;
+    if (key.includes(":")) continue;
     add(key, vscode.CompletionItemKind.Function, builtinDocs[key].heading);
   }
 
@@ -1690,7 +1638,6 @@ function completionsForScope(
     add(classMatch[1], vscode.CompletionItemKind.Class, "class");
   }
   for (const declaration of declarationsOf(document)) {
-    if (isLibraryName(normalizeGraphName(declaration.name))) continue;
     const isMethod = declaration.terminator === "=>";
     add(declaration.name, isMethod ? vscode.CompletionItemKind.Method : vscode.CompletionItemKind.Struct, isMethod ? "method" : "fact");
   }
@@ -2087,7 +2034,7 @@ class FelidaeRenameProvider implements vscode.RenameProvider {
     const found = identifierAt(document, position);
     if (!found) throw new Error("Select a Felidae identifier to rename.");
     // Builtins live in the compiler, not in the user's sources.
-    if (builtinDocs[found.name] || isLibraryNamespace(found.name)) {
+    if (builtinDocs[found.name]) {
       throw new Error(`'${found.name}' is a Felidae builtin and cannot be renamed.`);
     }
     return found.range;

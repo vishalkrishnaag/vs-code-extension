@@ -153,16 +153,16 @@
         },
         {
           "name": "constant.language.felidae",
-          "match": "\\b(?:true|false|nil)\\b"
+          "match": "\\b(?:true|false|None)\\b"
         },
         {
           "name": "keyword.control.felidae",
-          "match": "\\b(?:def|async|await|extends|implements|permits|else|then|for|in|while|switch|case|default|break|continue|try|catch|new|this|super)\\b"
+          "match": "\\b(?:def|async|await|extends|implements|permits|else|then|for|in|while|switch|case|default|break|continue|try|catch|new|this|super|enum|fn)\\b"
         },
         {
           "comment": "Reserved by the lexer but rejected by the parser with an explicit migration error (removed block-if, statement-level where/return, fact 'extend', the not-yet-implemented lambda): still real tokens, so still a keyword, not a plain identifier.",
           "name": "invalid.deprecated.keyword.felidae",
-          "match": "\\b(?:if|elif|return|where|extend|lambda)\\b"
+          "match": "\\b(?:if|elif|return|where|extend|lambda|nil)\\b"
         }
       ]
     },
@@ -226,7 +226,7 @@
       "patterns": [
         {
           "name": "storage.type.primitive.felidae",
-          "match": "\\b(?:int|long|float|double|boolean|char|byte|short|Integer|Long|Float|Double|Character|Byte|Short|String|Boolean|Atom|Any|Object|Nothing|List|Map|Optional|Pair)\\b"
+          "match": "\\b(?:int|long|float|double|boolean|char|byte|short|Integer|Long|Float|Double|Character|Byte|Short|String|Boolean|Atom|Any|Object|Nothing|Empty|List|Map|Optional|Pair)\\b"
         },
         {
           "name": "entity.name.type.class.felidae",
